@@ -81,33 +81,45 @@ export function initMixin (Vue: Class<Component>) {
                }
 
             3. 第三个参数 vm 就是 Vue 实例对象本身
-
+          //////////////////////////////////////
           对mergeOptions函数中的的分析得到：
             1. 非生产环境 校验组件的名字 是否符合规范（而且不是关键字、保留字）
             2. 因为Vue api中props、inject、directives存在多种写法，在源码中是处理成统一规范，方便处理
             3. 如果传入的options{}参数中存在extends、mixins，进行合并
             4. 处理合并成一个options，将构造函数上的options属性和传入的options参数合并成一个options,
-                *并且对一下属性增加合并策略*
-                - el、propsData的合并策略
-                - data的合并策略
-                - 生命周期钩子选项的合并策略
-                - 资源(assets)选项的合并策略
+                *并且对以下属性增加合并策略*
+                - el、propsData的合并策略         //返回值childVal === undefined ? parentVal : childVal，即el、propsData的值
+                - data的合并策略                 //返回函数，子组件和非子组件返回的函数不同，（该函数执行后都是一个合并过后的data对象，这要在初始化时执行）
+                - 生命周期钩子选项的合并策略       //返回一个数组，数组内部是生命周期函数，[生命周期函数, 生命周期函数...]，如果parentVal和childVal都没有，则返回undefined，不存在生命周期合并策略，在options上不会有
+                - 资源(assets)选项的合并策略      //directives、filters、components被认为是资源，因为都是可以作为第三方应用来提供的。
                 - watch选项的合并策略
                 - provide的合并策略
 
-            1. 一个简单的总结，现在我们了解到了一个事实，即 vm.$options.data 选项最终被 mergeOptions 函数处理成了一个函数
-              1.1 如果是子组件的情况
-                - 子类data不存在，就是父类的data
-                - 子类data存在，父类data不存在，就是子类的data
-                - 子类data存在、父类data存在，一个mergedDataFn函数
-              1.2 如果是非子组件的时候
-                - data 函数为 mergedInstanceDataFn 函数
-              结论：data 选项最终被处理为一个函数，这些函数的执行结果就是最终的数据对象。这是因为，通过函数返回数据对象，保证了每个组件实例都有一个唯一的数据副本，避免了组件间数据互相影响。不然组件之间都是同一个对象，会互相影响
-                    后面对Vue初始化数据状态的时候，就是通过执行 strats.data 函数来获取数据并对其进行处理的。
-              疑问：我们知道在合并阶段 strats.data 将被处理成一个函数，但是这个函数并没有被执行，而是到了后面初始化的阶段才执行的，这个时候才会调用 mergeData 对数据进行合并处理，那这么做的目的是什么呢？
-                    其实这么做是有原因的，后面讲到 Vue 的初始化的时候，大家就会发现 inject 和 props 这两个选项的初始化是先于 data 选项的，这就保证了我们能够使用 props 初始化 在data 中
-                    - 1. 由于 props 的初始化先于 data 选项的初始化
-                    - 2. data 选项是在初始化的时候才求值的，你也可以理解为在初始化的时候才使用 mergeData 进行数据合并。
+                1. 一个简单的总结，现在我们了解到了一个事实，即 vm.$options.data 选项最终被 mergeOptions 函数处理成了一个函数
+                  1.1 如果是子组件的情况
+                    - 子类data不存在，就是父类的data
+                    - 子类data存在，父类data不存在，就是子类的data
+                    - 子类data存在、父类data存在，一个mergedDataFn函数
+                  1.2 如果是非子组件的时候
+                    - data 函数为 mergedInstanceDataFn 函数
+                  结论：options.data 选项最终被处理为一个函数，这些函数的执行结果就是最终的数据对象。这是因为，通过函数返回数据对象，保证了每个组件实例都有一个唯一的数据副本，避免了组件间数据互相影响。不然组件之间都是同一个对象，会互相影响
+                        后面对Vue初始化数据状态的时候，就是通过执行 strats.data 函数来获取数据并对其进行处理的。
+                  疑问：我们知道在合并阶段 strats.data 将被处理成一个函数，但是这个函数并没有被执行，而是到了后面初始化的阶段才执行的，这个时候才会调用 mergeData 对数据进行合并处理，那这么做的目的是什么呢？
+                        其实这么做是有原因的，后面讲到 Vue 的初始化的时候，大家就会发现 inject 和 props 这两个选项的初始化是先于 data 选项的，这就保证了我们能够使用 props 初始化 在data 中
+                        - 1. 由于 props 的初始化先于 data 选项的初始化
+                        - 2. data 选项是在初始化的时候才求值的，你也可以理解为在初始化的时候才使用 mergeData 进行数据合并。
+
+                2. options.生命周期函数名字，返回一个数组，内部是生命周期函数, [生命周期函数, 生命周期函数, ...]。如果parentVal和childVal都没有生命周期函数，就没有这个合并策略
+
+                3. options.watch，返回一个对象，对象的结构存在3种可能，parentVal为构造者.options.watch，childVal为当前实例参数.watch。
+                    - 当无childVal时，返回{ __proto__: parentVal } 或者 {}
+                    - 当无parentVal时，返回childVal
+                    - 当childVal和parentVal都存在时，合并，返回的对象结构类似于 { key1: [fn1, fn2, ...], key2: [fn1, fn2, ...], ... }
+
+                4. options.props、options.methods、options.inject、options.computed，返回一个对象，返回存在3种可能：
+                   - 无parentVal，返回childVal
+                   - 有parentVal，无childVal，返回深拷贝parentVal对象后的一个对象
+                   - 有parentVal、有childVal，返回混合过的对象。注意：childVal 将覆盖 parentVal 的同名属性， 即父子选项中有相同的键，那么子选项会把父选项覆盖掉。
        */
       vm.$options = mergeOptions(
         resolveConstructorOptions(vm.constructor),  //Vue.options

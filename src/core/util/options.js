@@ -35,11 +35,12 @@ import {
  */
 const strats = config.optionMergeStrategies
 
-/*********************** 选项 el、propsData 的合并策略 ********************/
+/************************************** 选项 el、propsData 的合并策略 *******************************************/
 /**
  * Options with restrictions
  * @description:非production环境    选项 el、propsData 的合并策略
  *    选项 el、propsData 的合并策略，在非生产环境下在strats策略对象上添加两个策略(两个属性)分别是 el 和 propsData，且这两个属性的值是一个函数
+ *    return childVal === undefined ? parentVal : childVal
  */
 if (process.env.NODE_ENV !== 'production') {
   strats.el = strats.propsData = function (parent, child, vm, key) {
@@ -61,6 +62,7 @@ if (process.env.NODE_ENV !== 'production') {
   }
 }
 
+/************************************** 选项 data 的合并策略, strats.data策略函数 *************************************************/
 
 /**
  * Helper that recursively merges two data objects together.
@@ -155,7 +157,6 @@ export function mergeDataOrFn (
   }
 }
 
-/*********************** 选项 data 的合并策略, strats.data策略函数 ********************/
 /**
  * @description: 在 strats 策略对象上添加 data 策略函数，用来合并处理 data 选项
  */
@@ -185,7 +186,7 @@ strats.data = function (
 }
 
 
-/*********************** 生命周期钩子选项的合并策略 ********************/
+/*********************************************** 生命周期钩子选项的合并策略 ***************************************************/
 /**
  * Hooks and props are merged as arrays.
  * 生命周期钩子选项合并策略最后会返回：
@@ -285,12 +286,39 @@ LIFECYCLE_HOOKS.forEach(hook => {
   strats[hook] = mergeHook
 })
 
+/************************************************** 资源(assets)选项的合并策略 （directives、filters、components） ******************************************************/
 /**
  * Assets
  *
  * When a vm is present (instance creation), we need to do
  * a three-way merge between constructor options, instance
  * options and parent options.
+ *
+ * @description: 对components、directives、filters进行合并
+ * @return 返回一个对象
+ *    如果childVal对象存在，返回一个有childVal属性的对象，该对象的原型对象是parentVal对象
+ *    如果不存在childVal对象，则返回一个空对象，不过原型对象是parentVal对象
+      如：
+      childVal为：
+        components: {
+          ChildComponent: ChildComponent
+        }
+
+      parentVal为：
+        Vue.options = {
+          components: {
+            KeepAlive,
+            Transition,
+            TransitionGroup
+          },
+          directives: Object.create(null),
+          directives:{
+            model,
+            show
+          },
+          filters: Object.create(null),
+          _base: Vue
+        }
  */
 function mergeAssets (
   parentVal: ?Object,
@@ -298,57 +326,112 @@ function mergeAssets (
   vm?: Component,
   key: string
 ): Object {
+  /*
+    //parentVal对象即：
+    components: {
+      KeepAlive,
+      Transition,
+      TransitionGroup
+    }
+   */
   const res = Object.create(parentVal || null)
   if (childVal) {
+    // 这个函数其实是用来检测 childVal 是不是一个纯对象的，如果不是纯对象会给你一个警告
     process.env.NODE_ENV !== 'production' && assertObjectType(key, childVal, vm)
-    return extend(res, childVal)
+    //将childVal对象上的属性混合到res对象上
+    return extend(res, childVal)      //{}空对象，混入childVal对象上的属性，.__proto__上是parentVal对象的属性
+    /*
+      结果：
+      res = {
+        ChildComponent  //childVal对象中组件
+        // 原型
+        __proto__: {
+          KeepAlive,
+          Transition,
+          TransitionGroup
+        }
+      }
+    */
   } else {
     return res
   }
 }
-
+//ASSET_TYPES = ['component', 'directive', 'filter']
 ASSET_TYPES.forEach(function (type) {
   strats[type + 's'] = mergeAssets
 })
 
+/********************************************* 选项 watch 的合并策略 *****************************************************/
 /**
  * Watchers.
  *
  * Watchers hashes should not overwrite one
  * another, so we merge them as arrays.
+ * @return:
+     该函数最终返回一个对象，该对象的结构有以下3种：
+     1. 无childVal时:
+        { __proto__: parentVal } 或者 {}
+     2. 无parentVal时:
+        返回childVal对象
+     3. 有childVal和parentVal时:
+        返回一个对象，键为监听key，值为一个数组
+         {
+            key1: [fn1, fn2, ...],
+            key2: [fn1, ...],
+            ...
+         }
+
+    被合并处理后的 watch 选项下的每个键值，有可能是一个数组，也有可能是一个函数
  */
 strats.watch = function (
-  parentVal: ?Object,
-  childVal: ?Object,
+  parentVal: ?Object,   //构造者的options属性对象中的watch属性，如Vue.options.watch，或const P = Vue.extend({}), P.options.watch
+  childVal: ?Object,    //当前实例传的参数，如new Vue(options)中的对象options.watch，或Vue.extend(options)中的对象options.watch
   vm?: Component,
   key: string
 ): ?Object {
   // work around Firefox's Object.prototype.watch...
+  /*
+    在 Firefox 浏览器中 Object.prototype 拥有原生的 watch 函数,
+    nativeWatch = ({}).watch, 所以先看nativeWatch是否有watch属性，如果有，并且parentVal和childVal都没写watch属性，那么会去Object.prototype上获取原生的watch，此时parentVal === nativeWatch成立，
+    所以下面两句代码的目的是一个变通方案，当发现组件选项是浏览器原生的 watch 时，那说明用户并没有提供 Vue 的 watch 选项，直接重置为 undefined
+   */
   if (parentVal === nativeWatch) parentVal = undefined
   if (childVal === nativeWatch) childVal = undefined
   /* istanbul ignore if */
   if (!childVal) return Object.create(parentVal || null)
   if (process.env.NODE_ENV !== 'production') {
+    // 这个函数其实是用来检测 childVal 是不是一个纯对象的，如果不是纯对象会给你一个警告
     assertObjectType(key, childVal, vm)
   }
   if (!parentVal) return childVal
+  /*** 此时 parentVal 以及 childVal 都将存在，那么就需要做合并处理了 ***/
   const ret = {}
+  // 将 parentVal 的属性混合到 ret 中，后面处理的都将是 ret 对象，最后返回的也是 ret 对象
   extend(ret, parentVal)
+  //这个循环的目的是：检查子选项中的key键在父选项中是否也存在，并且也有值。如果在的话将父子选项合并到一个数组，否则直接把子选项变成一个数组返回。
   for (const key in childVal) {
+    // 由于遍历的是 childVal，所以 key 是子选项的 key，父选项中未必能获取到值，所以 parent 未必有值
     let parent = ret[key]
     const child = childVal[key]
+    // 这个 if 分支的作用就是如果 parent 存在，就将其转为数组
     if (parent && !Array.isArray(parent)) {
       parent = [parent]
     }
     ret[key] = parent
-      ? parent.concat(child)
-      : Array.isArray(child) ? child : [child]
+      ? parent.concat(child)  // 最后，如果 parent 存在，此时的 parent 应该已经被转为数组了，所以直接将 child concat 进去
+      : Array.isArray(child) ? child : [child]  // 如果 parent 不存在，直接将 child 转为数组返回
   }
+  //返回一个对象，value为一个数组
   return ret
 }
 
+/********************************************* 选项 props、methods、inject、computed 的合并策略 *****************************************************/
 /**
  * Other object hashes.
+ * @return: 返回一个对象，根据有无parentVal、childVal来返回一个对象
+     1. 无parentVal，返回childVal
+     2. 有parentVal，无childVal，返回深拷贝parentVal对象后的一个对象
+     3. 有parentVal、有childVal，返回混合过的对象。 注意：childVal 将覆盖 parentVal 的同名属性，即父子选项中有相同的键，那么子选项会把父选项覆盖掉。
  */
 strats.props =
 strats.methods =
@@ -360,10 +443,16 @@ strats.computed = function (
   key: string
 ): ?Object {
   if (childVal && process.env.NODE_ENV !== 'production') {
+    //props、methods、inject、computed，最后做过处理、规范化后，传进来都是一个对象，这里就是判断是否是一个纯对象，如果不是给出警告
     assertObjectType(key, childVal, vm)
   }
+  //无parentVal，则输出childVal
   if (!parentVal) return childVal
-  const ret = Object.create(null)
+  /*
+    有parentVal，且有childVal，则输出混合过的一个对象，注意：childVal 将覆盖 parentVal 的同名属性，即父子选项中有相同的键，那么子选项会把父选项覆盖掉。
+    有parentVal，无childVal，则输出一个深拷贝过后的parentVal对象
+   */
+  const ret = Object.create(null)  //创建一个纯粹的空对象，没有各种原型链
   extend(ret, parentVal)
   if (childVal) extend(ret, childVal)
   return ret
