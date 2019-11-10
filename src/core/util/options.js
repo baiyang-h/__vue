@@ -67,10 +67,14 @@ if (process.env.NODE_ENV !== 'production') {
 /**
  * Helper that recursively merges two data objects together.
  * @description:
- *    最后将父组件的data处理过的值，是一个对象和子组件计算过的data对象，进行终极合并策略
+ *    将to和from对象进行合并后的一个终极合并策略
+ *    - 没有parentVal直接返回childVal
+ *      - childVal中没有parentVal的属性，则将parentVal的属性和值混合到childVal上
+ *      - childVal中有和parentVal同名的属性，判断值是否相同，如果不相同，判断是否值为一个纯对象，如果是，则继续调用mergeData函数，进行深度合并
+ *    反正主要就是将parentVal混合到childVal上，如果childVal有同名属性值，以childVal优先，深度合并，对象里一层一层往下
  *  @param:
- *     to: childVal
- *     from: parentVal
+ *     to: childVal   是一个对象
+ *     from: parentVal   是一个对象
  *  @return:
  *     返回一个基于childVal对象上修改后的一个对象
  */
@@ -107,6 +111,19 @@ function mergeData (to: Object, from: ?Object): Object {
  * @description:
  *    该函数的返回值就是 strats.data策略函数
  *    如果没有传入vm参数，则表示是子组件
+ *    1. 如果是子组件的情况
+ *      - 子类data不存在，就是父类的data
+ *      - 子类data存在，父类data不存在，就是子类的data
+ *      - 子类data存在、父类data存在，一个mergedDataFn函数
+ *    2. 如果是非子组件的时候
+ *      - data 函数为 mergedInstanceDataFn 函数
+
+     结论：options.data 选项最终被处理为一个函数，这些函数的执行结果就是最终的数据对象。这是因为，通过函数返回数据对象，保证了每个组件实例都有一个唯一的数据副本，避免了组件间数据互相影响。不然组件之间都是同一个对象，会互相影响
+     后面对Vue初始化数据状态的时候，就是通过执行 strats.data 函数来获取数据并对其进行处理的。
+     疑问：我们知道在合并阶段 strats.data 将被处理成一个函数，但是这个函数并没有被执行，而是到了后面初始化的阶段才执行的，这个时候才会调用 mergeData 对数据进行合并处理，那这么做的目的是什么呢？
+     其实这么做是有原因的，后面讲到 Vue 的初始化的时候，大家就会发现 inject 和 props 这两个选项的初始化是先于 data 选项的，这就保证了我们能够使用 props 初始化 在data 中
+     - 1. 由于 props 的初始化先于 data 选项的初始化
+     - 2. data 选项是在初始化的时候才求值的，你也可以理解为在初始化的时候才使用 mergeData 进行数据合并。
  */
 export function mergeDataOrFn (
   parentVal: any,       //传入parent的是data属性，即Vue.options.data值
@@ -141,6 +158,7 @@ export function mergeDataOrFn (
   } else {    //处理非子组件选项的情况，也就是使用 new 操作符创建实例时的情况。将构造者.options.data和传入的{}.data合并
     return function mergedInstanceDataFn () {
       // instance merge
+      //这两个常量最后都是一个对象
       const instanceData = typeof childVal === 'function'
         ? childVal.call(vm, vm)
         : childVal
@@ -159,6 +177,7 @@ export function mergeDataOrFn (
 
 /**
  * @description: 在 strats 策略对象上添加 data 策略函数，用来合并处理 data 选项
+ *
  */
 strats.data = function (
   parentVal: any,     //传入的是data属性
@@ -189,7 +208,7 @@ strats.data = function (
 /*********************************************** 生命周期钩子选项的合并策略 ***************************************************/
 /**
  * Hooks and props are merged as arrays.
- * 生命周期钩子选项合并策略最后会返回：
+ * 生命周期钩子选项合并策略最后会返回一个数组：
  *    1. [生命周期函数, 生命周期函数, 生命周期函数...] 都是相同的生命周期
  *    2. 当parentVal和childVal都没有生命周期钩子时，返回undefined，根本不会执行
  */
@@ -367,21 +386,28 @@ ASSET_TYPES.forEach(function (type) {
  *
  * Watchers hashes should not overwrite one
  * another, so we merge them as arrays.
- * @return:
+ * @description:
      该函数最终返回一个对象，该对象的结构有以下3种：
-     1. 无childVal时:
+     1. 无childVal时:  此处有原型是返回的这个对象，我们可以通过原型链区继承他父级的属性，即父watch上的属性
         { __proto__: parentVal } 或者 {}
      2. 无parentVal时:
-        返回childVal对象
+        返回childVal对象，即可能为： 值有可能是函数、数组、对象，反正返回childVal对象
+        {
+          key1: function(val) {},
+          key2: [...],
+          key3: {...}
+        }
      3. 有childVal和parentVal时:
-        返回一个对象，键为监听key，值为一个数组
+          - childVal和parentVal拥有相同key时，一起混合成一个数组 [ parentVal[key], childVal[key] ]返回。
+          - childVal的key不在parentVal中时，直接返回[ childVal[key] ]
+        返回一个对象，键为监听key，值为一个数组,数组中可能是函数、数组、对象
          {
-            key1: [fn1, fn2, ...],
-            key2: [fn1, ...],
+            key1: [x, x, ...],
+            key2: [x, ...],
             ...
          }
-
-    被合并处理后的 watch 选项下的每个键值，有可能是一个数组，也有可能是一个函数
+    @return:
+      返回的是一个对象，用于绑定到options.watch上
  */
 strats.watch = function (
   parentVal: ?Object,   //构造者的options属性对象中的watch属性，如Vue.options.watch，或const P = Vue.extend({}), P.options.watch
@@ -457,6 +483,9 @@ strats.computed = function (
   if (childVal) extend(ret, childVal)
   return ret
 }
+
+/********************************************* 选项 provide 的合并策略 *****************************************************/
+//provide 选项的合并策略与 data 选项的合并策略相同
 strats.provide = mergeDataOrFn
 
 /**
