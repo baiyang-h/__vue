@@ -88,11 +88,26 @@ export function renderMixin (Vue: Class<Component>) {
       // separately from one another. Nested component's render fns are called
       // when parent component is patched.
       currentRenderingInstance = vm
+      // or previous vnode to prevent render error causing blank component
+      /*
+        vm.$options.render函数长怎么样子呢？
+          1. render函数是我们手动自己写的，传进来
+          2. 在传进来的options中没有写render属性，则：
+                vm.$options.render = function () {
+                  // 在下面方法中能看到 render 函数的 this 指向vm._renderProxy,
+                  with(this){
+                    return _c('div', [_v(_s(a))])   // 在这里访问 a，相当于访问 vm._renderProxy.a，因为环境是this环境
+                  }
+                }
+
+              而vm._renderProxy在proxy.js文件中做了赋值，如果支持Proxy则 with 语句块内访问变量 将会被 Proxy 的 has 代理所拦截，否则为vm。一下两种可能
+                - vm._renderProxy = new Proxy(vm, handlers)
+                - vm._renderProxy = vm
+       */
       vnode = render.call(vm._renderProxy, vm.$createElement)
     } catch (e) {
       handleError(e, vm, `render`)
       // return error render result,
-      // or previous vnode to prevent render error causing blank component
       /* istanbul ignore else */
       if (process.env.NODE_ENV !== 'production' && vm.$options.renderError) {
         try {

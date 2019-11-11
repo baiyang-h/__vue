@@ -96,14 +96,15 @@ export function initMixin (Vue: Class<Component>) {
                 - 对于 props、methods、inject、computed 选项的合并策略
                 - provide的合并策略
 
-
-
-                4. options.props、options.methods、options.inject、options.computed，返回一个对象，返回存在3种可能：
-                   - 无parentVal，返回childVal
-                   - 有parentVal，无childVal，返回深拷贝parentVal对象后的一个对象
-                   - 有parentVal、有childVal，返回混合过的对象。注意：childVal 将覆盖 parentVal 的同名属性， 即父子选项中有相同的键，那么子选项会把父选项覆盖掉。
-
-                5. options.provide，返回一个函数，函数执行的结构是返回一个对象，即就是data一样的函数
+            - 对于 el、propsData 选项使用默认的合并策略 defaultStrat。
+            - 对于 data 选项，使用 mergeDataOrFn 函数进行处理，最终结果是 data 选项将变成一个函数，且该函数的执行结果为真正的数据对象。
+            - 对于 生命周期钩子 选项，将合并成数组，使得父子选项中的钩子函数都能够被执行
+            - 对于 directives、filters 以及 components 等资源选项，父子选项将以原型链的形式被处理，正是因为这样我们才能够在任何地方都使用内置组件、指令等。
+            - 对于 watch 选项的合并处理，类似于生命周期钩子，如果父子选项都有相同的观测字段，将被合并为数组，这样观察者都将被执行。
+            - 对于 props、methods、inject、computed 选项，父选项始终可用，但是子选项会覆盖同名的父选项字段。
+            - 对于 provide 选项，其合并策略使用与 data 选项相同的 mergeDataOrFn 函数。
+            - 最后，以上没有提及到的选项都将使默认选项 defaultStrat。
+              - 默认合并策略函数 defaultStrat 的策略是：只要子选项不是 undefined 就使用子选项，否则使用父选项。
        */
       vm.$options = mergeOptions(
         resolveConstructorOptions(vm.constructor),  //Vue.options
@@ -112,7 +113,10 @@ export function initMixin (Vue: Class<Component>) {
       )
     }
     /* istanbul ignore else */
+    //不管在生产环境还是在开发环境都在vm实例上增加了_renderProxy属性
     if (process.env.NODE_ENV !== 'production') {
+      //initProxy 的作用实际上就是对实例对象 vm 的代理,通过原生的 Proxy 实现，如果支持Proxy的话
+      //这个函数的主要作用其实也是在实例对象 vm 上添加 _renderProxy 属性
       initProxy(vm)
     } else {
       vm._renderProxy = vm
