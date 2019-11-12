@@ -204,7 +204,10 @@ export function createComponent (
 
   return vnode
 }
-
+/*
+  在父组件的 components 选项中把这个子组件选项对象注册了进去，实际上在 Vue 内部，会首先以子组件选项对象作为参数通过 Vue.extend 函数创建一个子类出来，
+  然后再通过实例化子类来创建子组件,而 createComponentInstanceForVnode 函数的作用，在这里大家就可以简单理解为实例化子组件，只不过这个过程是在虚拟DOM的 patch 算法中进行
+ */
 export function createComponentInstanceForVnode (
   vnode: any, // we know it's MountedComponentVNode but flow doesn't
   parent: any, // activeInstance in lifecycle state

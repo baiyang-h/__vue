@@ -18,6 +18,7 @@ import {
   invokeWithErrorHandling
 } from '../util/index'
 
+//activeInstance这个变量将总是保存着当前正在渲染的实例的引用，所以它就是当前实例 components 下注册的子组件的父实例
 export let activeInstance: any = null
 export let isUpdatingChildComponent: boolean = false
 
@@ -29,21 +30,87 @@ export function setActiveInstance(vm: Component) {
   }
 }
 
+/**
+ * @description: 与生命周期有关, 初始化
+ *    主要做了：
+ *    1. 定义vm.$parent、vm.$root、parent.$childrn中不存在抽象实例
+ *      - 定义了 vm.$parent 指向父实例
+ *      - 将当前实例添加到父实例的 $children 属性里 (父实例是跳过抽象实例的，一层层往上找，直到不是抽象实例为止，即抽象实例是不会被添加到父实例的$children中的)
+ *      - 定义了 vm.$root
+ *    2. 初始化 当前实例上添加一些属性
+           vm.$children = []
+           vm.$refs = {}
+
+           vm._watcher = null
+           vm._inactive = null
+           vm._directInactive = false
+           vm._isMounted = false
+           vm._isDestroyed = false
+           vm._isBeingDestroyed = false
+ * @param 实例对象
+ */
 export function initLifecycle (vm: Component) {
+  // 定义 options，它是 vm.$options 的引用，后面的代码使用的都是 options 常量
   const options = vm.$options
 
   // locate first non-abstract parent
+  //>>>>>>>>
+  /*
+    下面这部分用一句话总结:
+      - 将当前实例添加到父实例的 $children 属性里 (父实例是跳过抽象实例的，一层层往上找，直到不是抽象实例为止，即抽象实例是不会被添加到父实例的$children中的)
+      - 定义了 vm.$parent 指向父实例
+      - 定义了 vm.$root
+   */
+  // 定义 parent，它引用当前实例的父实例
   let parent = options.parent
-  if (parent && !options.abstract) {
+  /*
+    如果当前实例有父组件，且当前实例不是抽象的
+      什么是抽象的实例？
+      实际上 Vue 内部有一些选项是没有暴露给我们的，就比如这里的 abstract，通过设置这个选项为 true，可以指定该组件是抽象的，那么通过该组件创建的实例也都是抽象的。
+      例如：
+        AbsComponents = {
+          abstract: true,
+          created () {
+            console.log('我是一个抽象的组件')
+          }
+        }
+      抽象的组件有什么特点呢？
+      1. 一般不渲染真实DOM
+        如Vue内置的组件：keep-alive 或者 transition，这两个组件它是不会渲染DOM至页面的
+          export default {
+            name: 'keep-alive',
+            abstract: true,
+            ...
+          }
+      2. 它们不会出现在父子关系的路径上，抽象的组件是不能够也不应该作为父级的。 即： 即使keep-alive包裹着<AAA>，但<AAA>的父组件还是<BBB>，
+        <BBB>
+          <keep-alive><AAA></keep-alive>
+        </BBB>
+   */
+  /*
+    options.abstract为true，说表示当前实例是抽象
+    下面这段主要做了：
+      - 定义了vm.$parent
+      - 定义了vm.$root
+      - 如果遇到了抽象的实例，则跳过抽象实例，继续往上寻找，直到找到第一个父组件，并且在该 父组件的实例.$children.push(vm)
+   */
+  if (parent && !options.abstract) {    //存在父组件，且本身实例不是抽象的
+    // 使用 while 循环查找第一个非抽象的父组件
+    //一直往上寻找，直到找到第一个 非抽象的父组件，才跳出循环
     while (parent.$options.abstract && parent.$parent) {
-      parent = parent.$parent
+      parent = parent.$parent     //当前实例还是抽象的，继续往上寻找
     }
-    parent.$children.push(vm)
+    // 经过上面的 while 循环后，parent 应该是一个非抽象的组件，将它作为当前实例的父级，所以将当前实例 vm 添加到父级的 $children 属性里
+    parent.$children.push(vm)     //  这里是 非抽象实例 被添加到父实例中， 如果是抽象实例，根本就不会进入这个判断，所以抽象实例不会被加入到父实例的$children中
   }
 
+  // 设置当前实例的 $parent 属性，指向父级
   vm.$parent = parent
+  // 设置 $root 属性，有父级就是用父级的 $root，否则 $root 指向自身
   vm.$root = parent ? parent.$root : vm
+  //<<<<<<<
 
+  //当前实例上添加一些属性
   vm.$children = []
   vm.$refs = {}
 

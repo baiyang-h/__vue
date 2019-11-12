@@ -113,7 +113,7 @@ export function initMixin (Vue: Class<Component>) {
       )
     }
     /* istanbul ignore else */
-    //不管在生产环境还是在开发环境都在vm实例上增加了_renderProxy属性
+    //不管在生产环境还是在开发环境都在vm实例上增加了_renderProxy属性, _renderProxy用于渲染函数作用域代理
     if (process.env.NODE_ENV !== 'production') {
       //initProxy 的作用实际上就是对实例对象 vm 的代理,通过原生的 Proxy 实现，如果支持Proxy的话
       //这个函数的主要作用其实也是在实例对象 vm 上添加 _renderProxy 属性
@@ -124,9 +124,36 @@ export function initMixin (Vue: Class<Component>) {
     // expose real self
     /**
      * 一系列的初始化方法 在这些初始化方法中，无一例外的都使用到了实例的 $options 属性
+     * 在父组件的 components 选项中把这个子组件选项对象注册了进去，实际上在 Vue 内部，会首先以子组件选项对象作为参数通过 Vue.extend 函数创建一个子类出来，然后再通过实例化子类来创建子组件
      */
+
     vm._self = vm
+
+    /*   <<<<<<<< 上面代码，定义了这些
+
+      vm._uid = uid++     // 每个Vue实例都拥有一个唯一的 id
+      vm._isVue = true    // 这个表示用于避免Vue实例对象被观测(observed)
+      vm.$options         // 当前 Vue 实例的初始化选项，注意：这是经过 mergeOptions() 后的
+      vm._renderProxy = vm    // 渲染函数作用域代理
+      vm._self = vm       // 实例本身
+   */
+    /*
+      初始化 增加
+      vm.$parent = parent
+      vm.$root = parent ? parent.$root : vm
+
+      vm.$children = []
+      vm.$refs = {}
+
+      vm._watcher = null
+      vm._inactive = null
+      vm._directInactive = false
+      vm._isMounted = false
+      vm._isDestroyed = false
+      vm._isBeingDestroyed = false
+     */
     initLifecycle(vm)
+
     initEvents(vm)
     initRender(vm)
     callHook(vm, 'beforeCreate')
