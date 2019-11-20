@@ -9,10 +9,17 @@ import {
 } from '../util/index'
 import { updateListeners } from '../vdom/helpers/index'
 
+/*
+增加
+vm._events = Object.create(null)  初始化一个空对象
+vm._hasHookEvent = false
+是否执行updateComponentListeners
+ */
 export function initEvents (vm: Component) {
   vm._events = Object.create(null)
   vm._hasHookEvent = false
   // init parent attached events
+  //_parentListeners这个属性，是在创建子组件实例的时候才会有这个参数选项
   const listeners = vm.$options._parentListeners
   if (listeners) {
     updateComponentListeners(vm, listeners)

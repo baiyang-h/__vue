@@ -45,17 +45,29 @@ export function proxy (target: Object, sourceKey: string, key: string) {
   Object.defineProperty(target, key, sharedPropertyDefinition)
 }
 
+/**
+ * @description: 对部分选项进行初始化，如：props、methods、data、computed 和 watch 等
+ *    并且我们注意到 props 选项的初始化要早于 data 选项的初始化
+ * @param vm
+ */
 export function initState (vm: Component) {
+  //其初始值是一个数组，这个数组将用来存储所有该组件实例的 watcher 对象
   vm._watchers = []
   const opts = vm.$options
+  //如果选项中有 props，那么就调用 initProps 初始化 props 选项
   if (opts.props) initProps(vm, opts.props)
+  //如果 选项中 methods 存在，则调用 initMethods 初始化 methods 选项。
   if (opts.methods) initMethods(vm, opts.methods)
+  //判断 data 选项是否存在，如果存在则调用 initData 初始化 data 选项，如果不存在则直接调用 observe 函数观测一个空对象：{}。
   if (opts.data) {
     initData(vm)
   } else {
     observe(vm._data = {}, true /* asRootData */)
   }
+  //如果选项中有 computed，那么就调用 initComputed 初始化 computed 选项
   if (opts.computed) initComputed(vm, opts.computed)
+  //如果选项中有 watch && 还要判断 opts.watch 是不是原生的 watch 对象，是，那么就调用 initWatch 初始化 watch 选项
+  //前面的章节中我们提到过，这是因为在 Firefox 中原生提供了 Object.prototype.watch 函数，避免这里没watch对象时，调用火狐中的watch属性
   if (opts.watch && opts.watch !== nativeWatch) {
     initWatch(vm, opts.watch)
   }

@@ -20,6 +20,11 @@ import {
 
 //activeInstance这个变量将总是保存着当前正在渲染的实例的引用，所以它就是当前实例 components 下注册的子组件的父实例
 export let activeInstance: any = null
+/*
+  定义 isUpdatingChildComponent，并初始化为 false。
+  只有当 updateChildComponent 函数开始执行的时候会被更新为 true。当 updateChildComponent 执行结束时又将 isUpdatingChildComponent 的值还原为 false
+  这是因为 updateChildComponent 函数需要更新实例对象的 $attrs 和 $listeners 属性，所以此时是不需要提示 $attrs 和 $listeners 是只读属性的
+ */
 export let isUpdatingChildComponent: boolean = false
 
 export function setActiveInstance(vm: Component) {
@@ -400,16 +405,42 @@ export function deactivateChildComponent (vm: Component, direct?: boolean) {
   }
 }
 
+/**
+ * @description: 调用生命周期钩子函数
+ * @param vm: 实例，hook: 生命周期函数名
+ * 所以我们发现，对于生命周期钩子的调用，其实就是通过 this.$options 访问处理过的对应的生命周期钩子函数数组，遍历并执行它们。
+ */
 export function callHook (vm: Component, hook: string) {
   // #7573 disable dep collection when invoking lifecycle hooks
+  /*
+    这里使用pushTarget()开头、popTarget()结尾。
+    其实是为了避免在某些生命周期钩子中使用 props 数据导致收集冗余的依赖
+   */
   pushTarget()
+  //在选项合并中，我们知道 生命周期钩子选项最终会被合并处理成一个数组
   const handlers = vm.$options[hook]
   const info = `${hook} hook`
+  // 由于开发者在编写组件时未必会写生命周期钩子，所以获取到的 handlers 可能不存在，所以使用 if 语句进行判断
+  // 对于生命周期钩子的调用，其实就是通过 this.$options 访问处理过的对应的生命周期钩子函数数组，遍历并执行它们。
   if (handlers) {
     for (let i = 0, j = handlers.length; i < j; i++) {
+      //调用生命周期函数
       invokeWithErrorHandling(handlers[i], vm, null, vm, info)
     }
   }
+  /*
+  vm._hasHookEvent 是在 initEvents 函数中定义的，它的作用是判断是否存在生命周期钩子的事件侦听器，初始化值为 false 代表没有，
+  当组件检测到存在生命周期钩子的事件侦听器时，会将 vm._hasHookEvent 设置为 true。什么叫做生命周期钩子的事件侦听器呢？即：
+  <child
+    @hook:beforeCreate="handleChildBeforeCreate"
+    @hook:created="handleChildCreated"
+    @hook:mounted="handleChildMounted"
+    @hook:生命周期钩子
+   />
+  可以使用 hook: 加 生命周期钩子名称 的方式来监听组件相应的生命周期事件
+  这是 Vue 官方文档上没有体现的，除非你对 Vue 非常了解，否则不建议使用。
+  正是为了实现这个功能，才有了这段代码：
+   */
   if (vm._hasHookEvent) {
     vm.$emit('hook:' + hook)
   }

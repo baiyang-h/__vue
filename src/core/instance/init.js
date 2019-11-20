@@ -137,6 +137,7 @@ export function initMixin (Vue: Class<Component>) {
       vm._renderProxy = vm    // 渲染函数作用域代理
       vm._self = vm       // 实例本身
    */
+
     /*
       初始化 增加
       vm.$parent = parent
@@ -153,12 +154,41 @@ export function initMixin (Vue: Class<Component>) {
       vm._isBeingDestroyed = false
      */
     initLifecycle(vm)
-
+    /*
+      vm._events = Object.create(null)
+      vm._hasHookEvent = false
+     */
     initEvents(vm)
+    /*
+      vm._vnode = null
+      vm._staticTrees = null
+
+      vm.$vnode
+      vm.$slots
+      vm.$scopedSlots
+
+      vm._c
+      vm.$createElement
+
+      vm.$attrs
+      vm.$listeners
+     */
     initRender(vm)
+    /*
+      这里表示了，beforeCreate 以及 created 这两个生命周期钩子的调用时机。
+
+      其中 initState 包括了：initProps、initMethods、initData、initComputed、initWatch
+      所以当 beforeCreate 钩子被调用时，所有与 props、methods、data、computed 以及 watch 相关的内容都不能使用，当然了 inject/provide 也是不可用的
+
+      created 生命周期钩子则恰恰是等待 initInjections、initState 以及 initProvide 执行完毕之后才被调用
+      由于此时还没有任何挂载的操作，所以在 created 中是不能访问DOM的，即不能访问 $el
+     */
     callHook(vm, 'beforeCreate')
+    //在data、props之前。也就是说 inject 选项要更早被初始化
     initInjections(vm) // resolve injections before data/props
+    //对部分选项进行初始化，如：props、methods、data、computed 和 watch 等
     initState(vm)
+    //在data、props之后
     initProvide(vm) // resolve provide after data/props
     callHook(vm, 'created')
 
