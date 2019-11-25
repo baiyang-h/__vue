@@ -191,8 +191,10 @@ function initData (vm: Component) {
     else if (!isReserved(key)) {
       /*
         proxy 函数的原理是通过 Object.defineProperty 函数在实例对象 vm 上定义与 data 数据字段同名的访问器属性，并且这些属性代理的值是 vm._data 上对应属性的值。
+
         即：本来上面data的数据都在处理过的 vm._data 上，现在我们经过处理，将vm._data上的数据添加到 vm实例 上，所以 我们可以平时访问this.a得到数据了
         当我们访问this.a 其实是访问 this._data.a
+        this._data.a --->  this.a
        */
       proxy(vm, `_data`, key)
     }
