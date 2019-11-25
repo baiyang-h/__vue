@@ -186,7 +186,13 @@ export function initMixin (Vue: Class<Component>) {
     callHook(vm, 'beforeCreate')
     //在data、props之前。也就是说 inject 选项要更早被初始化
     initInjections(vm) // resolve injections before data/props
-    //对部分选项进行初始化，如：props、methods、data、computed 和 watch 等
+    /*
+      对部分选项进行初始化，
+      如：重新设置vm._watchers = [] 上面initLifecycle函数中已经定义为null、
+      vm._data  即处理data后，最后的 数据对象
+
+      props、methods、data、computed 和 watch 等进行初始化
+     */
     initState(vm)
     //在data、props之后
     initProvide(vm) // resolve provide after data/props

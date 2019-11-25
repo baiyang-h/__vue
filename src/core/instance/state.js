@@ -48,6 +48,7 @@ export function proxy (target: Object, sourceKey: string, key: string) {
 /**
  * @description: 对部分选项进行初始化，如：props、methods、data、computed 和 watch 等
  *    并且我们注意到 props 选项的初始化要早于 data 选项的初始化
+ *    props > methods > data > computed > watch
  * @param vm
  */
 export function initState (vm: Component) {
@@ -58,7 +59,10 @@ export function initState (vm: Component) {
   if (opts.props) initProps(vm, opts.props)
   //如果 选项中 methods 存在，则调用 initMethods 初始化 methods 选项。
   if (opts.methods) initMethods(vm, opts.methods)
-  //判断 data 选项是否存在，如果存在则调用 initData 初始化 data 选项，如果不存在则直接调用 observe 函数观测一个空对象：{}。
+  /*
+    判断 data 选项是否存在，如果存在则调用 initData 初始化 data 选项，如果不存在则直接调用 observe 函数观测一个空对象：{}，并且 vm._data 引用了该空对象。
+    $data 属性是一个访问器属性，其代理的值就是 _data，具体设置就在下面的 stateMixin 函数中
+   */
   if (opts.data) {
     initData(vm)
   } else {
@@ -121,11 +125,27 @@ function initProps (vm: Component, propsOptions: Object) {
   toggleObserving(true)
 }
 
+/**
+ * @description
+ *  1. 根据 vm.$options.data 选项获取真正想要的数据（注意：此时 vm.$options.data 是函数）
+ *  2. 校验得到的数据是否是一个纯对象
+ *  3. 检查数据对象 data 上的键是否与 props 对象上的键冲突
+ *  4. 检查 methods 对象上的键是否与 data 对象上的键冲突
+ *  5. 在 Vue 实例对象上添加代理访问数据对象的同名属性
+ *  6. 最后调用 observe 函数开启响应式之路
+ */
 function initData (vm: Component) {
-  let data = vm.$options.data
+  let data = vm.$options.data   //在data合并策略中我们知道 vm.$options.data 其实最终被处理成了一个函数。函数的执行结果才是真正的数据，是一个对象
+  /*
+    既然我们知道 data 是一个函数了，为什么这里还要进行判断呢？
+    这是因为 beforeCreate 生命周期钩子函数是在 mergeOptions 函数之后 initData 之前被调用的，
+    如果在 beforeCreate 生命周期钩子函数中修改了 vm.$options.data 的值，那么在 initData 函数中对于 vm.$options.data 类型的判断就是必要的了
+   */
+  //经过getData这一步，此时 data 已经不是一个函数了，而是最终的数据对象
   data = vm._data = typeof data === 'function'
-    ? getData(data, vm)
+    ? getData(data, vm)   //getData 函数获取真正的数据,
     : data || {}
+  //isPlainObject 函数判断变量 data 是不是一个纯对象，这个判断语句之后，data已经是一个对象了
   if (!isPlainObject(data)) {
     data = {}
     process.env.NODE_ENV !== 'production' && warn(
@@ -141,7 +161,12 @@ function initData (vm: Component) {
   let i = keys.length
   while (i--) {
     const key = keys[i]
+    /*
+    props优先级 > methods优先级 > data优先级
+    即如果一个 key 在 props 中有定义了那么就不能在 data 和 methods 中出现了；如果一个 key 在 data 中出现了那么就不能在 methods 中出现了
+     */
     if (process.env.NODE_ENV !== 'production') {
+      //警告，事件和data具有相同key时，发出的警告。你定义在 methods 对象中的函数名称已经被作为 data 对象中某个数据字段的 key 了，你应该换一个函数名字
       if (methods && hasOwn(methods, key)) {
         warn(
           `Method "${key}" has already been defined as a data property.`,
@@ -149,22 +174,46 @@ function initData (vm: Component) {
         )
       }
     }
+    //警告，data和prop 具有相同key时的警告
     if (props && hasOwn(props, key)) {
       process.env.NODE_ENV !== 'production' && warn(
         `The data property "${key}" is already declared as a prop. ` +
         `Use prop default value instead.`,
         vm
       )
-    } else if (!isReserved(key)) {
+    }
+    /*
+    该条件的意思是判断定义在 data 中的 key 是否是保留键
+    isReserved 函数通过判断一个字符串的第一个字符是不是 $ 或 _ 来决定其是否是保留的，
+    Vue 是不会代理那些键名以 $ 或 _ 开头的字段的，因为 Vue 自身的属性和方法都是以 $ 或 _ 开头的，所以这么做是为了避免与 Vue 自身的属性和方法相冲突。
+      如果 key 既不是以 $ 开头，又不是以 _ 开头，那么将执行 proxy 函数，实现实例对象的代理访问
+     */
+    else if (!isReserved(key)) {
+      /*
+        proxy 函数的原理是通过 Object.defineProperty 函数在实例对象 vm 上定义与 data 数据字段同名的访问器属性，并且这些属性代理的值是 vm._data 上对应属性的值。
+        即：本来上面data的数据都在处理过的 vm._data 上，现在我们经过处理，将vm._data上的数据添加到 vm实例 上，所以 我们可以平时访问this.a得到数据了
+        当我们访问this.a 其实是访问 this._data.a
+       */
       proxy(vm, `_data`, key)
     }
   }
   // observe data
+  /*
+    调用 observe 函数将 data 数据对象转换成响应式
+   */
   observe(data, true /* asRootData */)
 }
 
+/**
+ * @description: 通过调用 data 函数获取真正的数据对象并返回
+ * @param data选项，在data合并策略中知道，data选项是一个函数
+ * @param Vue 实例对象
+ */
 export function getData (data: Function, vm: Component): any {
   // #7573 disable dep collection when invoking data getters
+  /*
+  开头调用了 pushTarget() 函数，结尾调用了 popTarget()。为了防止使用 props 数据初始化 data 数据时收集冗余的依赖
+   */
   pushTarget()
   try {
     return data.call(vm, vm)
@@ -348,6 +397,7 @@ export function stateMixin (Vue: Class<Component>) {
       warn(`$props is readonly.`, this)
     }
   }
+  //其代理的值就是 _data 和 _props
   Object.defineProperty(Vue.prototype, '$data', dataDef)
   Object.defineProperty(Vue.prototype, '$props', propsDef)
 
