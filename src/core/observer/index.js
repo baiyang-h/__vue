@@ -148,7 +148,10 @@ function copyAugment (target: Object, src: Object, keys: Array<string>) {
  */
 /**
  * @description: 观测对象的初始入口
- *  会给数据对象增加一个 __ob__ 属性，表示是一个观测对象
+ *  if 如果数据对象不是一个纯对象或者是vNode实例，则直接return undefined
+ *  if 如果数据对象本身有 __ob__ 属性，并且该 __ob__属性的值是Observer的实例，则返回该值，value.__ob__
+ *  if else 各种判断下面： 创建一个 ob Observer的实例对象，并且给数据对象value，增加一个__ob__属性，其值就是这个Observer的实例对象
+ *  会给数据对象增加一个 __ob__ 属性，表示是一个观测对象，其值就是一个观察实例对象
  * @param value: 要观测的数据，如 Vue中的 data 对象
  * @param asRootData： 一个布尔值，代表将要被观测的数据是否是根级数据
  * @returns {Observer|void}
@@ -200,12 +203,22 @@ export function observe (value: any, asRootData: ?boolean): Observer | void {
  * Define a reactive property on an Object.
  */
 /**
- * @description: 该函数的核心就是 将数据对象的数据属性转换为访问器属性，即为数据对象的属性设置一对 getter/setter
+ * @description: 该函数的核心就是 将数据对象的数据属性转换为访问器属性，即为数据对象的属性设置一对 getter/setter，增加搜集依赖
  * @param obj：数据对象
  * @param key：键
  * @param val
  * @param customSetter
  * @param shallow
+
+例如：传入的数据对象为
+obj: const data = {
+  a: {
+    b: 1,
+    __ob__: {value, dep, vmCount}
+  },
+  __ob__: {value, dep, vmCount}
+}
+key: a
  */
 export function defineReactive (
   obj: Object,
@@ -214,7 +227,7 @@ export function defineReactive (
   customSetter?: ?Function,
   shallow?: boolean
 ) {
-  // 每个字段的 Dep 对象都被用来收集那些属于对应字段的依赖。
+  // 每个字段的 Dep 对象都被用来收集那些属于对应字段的依赖。  看下面，还有一个搜集依赖。对他们的用处，下面写了说明
   const dep = new Dep()
 
   const property = Object.getOwnPropertyDescriptor(obj, key)    //获取该字段可能已有的属性描述对象，即{value: x, writable: x, enumerable: x, configurable: x}
@@ -242,6 +255,21 @@ export function defineReactive (
     即 initRender 函数中在 Vue 实例对象上定义 $attrs 属性和 $listeners 属性时就是非深度观测：
       defineReactive(vm, '$attrs', parentData && parentData.attrs || emptyObject, null, true) // 最后一个参数 shallow 为 true
       defineReactive(vm, '$listeners', options._parentListeners || emptyObject, null, true)
+
+  observe函数返回的值：
+    数据不是一个 纯对象 或者是 VNode 实例，返回 undefined，即 data = { a: 111 }, val 是 data.a 是一个字符串，返回undefined
+    或者
+    data = {a: { __ob__: {xx} } }, val 是 data.a 是一个对象，返回 ob 观察实例对象
+    返回 {
+      value: data,      // value 属性指向 data 数据对象本身，这是一个循环引用
+      dep: dep实例对象,  // new Dep()
+      vmCount: number
+      __proto__: {
+        walk函数,
+        observeArray函数
+      }
+    }
+    即 childOb 就是 一个观察实例对象， 比如 data.a.__ob__，因为__ob__属性的值就是一个观察实例对象
   */
   let childOb = !shallow && observe(val)
   /*
@@ -273,13 +301,26 @@ export function defineReactive (
       //上面判断了getter是否存在的值，如果 getter 存在那么直接调用该函数，并以该函数的返回值作为属性的值，保证属性的原有读取操作正常运作。如果 getter 不存在则使用 val 作为属性的值。
       // 第1件事完成，正确返回属性值
       const value = getter ? getter.call(obj) : val
-      //第2件事，收集依赖
-      if (Dep.target) {
+      //第2件事，收集依赖,
+      //如果 Dep.target 存在的话说明有依赖需要被收集。如果 Dep.target 不存在就意味着没有需要被收集的依赖
+      if (Dep.target) {  //Dep.target 中保存的值就是要被收集的依赖(观察者)，即 就像声明了一个变量一样，上面就是被搜集的依赖
         // 这里大家要明确一件事情，即 每一个数据字段都通过闭包引用着属于自己的 dep 常量
-        //这句代码的执行就意味着依赖被收集了
-        dep.depend()
+        //这句代码的执行就意味着依赖被收集了。执行 dep 对象的 depend 方法将依赖收集到 dep 这个“筐”中，即当前属性 a 自己的筐中
+        dep.depend()  //搜集依赖
         if (childOb) {
-          childOb.dep.depend()
+          // childOb.dep === data.a.__ob__.dep
+          // 这句话的执行说明除了要将依赖收集到属性 a 自己的“筐”里之外（搜集到a的框中的代码是上面 dep.depend 这句），还要将同样的依赖收集到 data.a.__ob__.dep 这里”筐“里
+          childOb.dep.depend()  //搜集依赖
+          /*
+          为什么要将同样的依赖分别收集到这两个不同的”筐“里呢？答案就在于这两个”筐“里收集的依赖的触发时机是不同的，即作用不同
+            - dep           data.a  这一级
+              第一个”筐“里收集的依赖的触发时机是当属性值被修改时触发，即在 set 函数中触发：dep.notify()
+            - childOb.dep   data.a.__ob__   这一级
+              第二个”筐“里收集的依赖的触发时机是在使用 $set 或 Vue.set 给数据对象添加新属性时触发，
+              我们知道由于 js 语言的限制，在没有 Proxy 之前 Vue 没办法拦截到给对象添加属性的操作。所以 Vue 才提供了 $set 和 Vue.set 等方法让我们有能力给对象添加新属性的同时触发依赖。
+              那么触发依赖是怎么做到的呢？就是通过数据对象的 __ob__ 属性做到的，因为 __ob__.dep 这个”筐“里收集了与 dep 这个”筐“同样的依赖。
+           */
+          //如果读取的属性值是数组，那么需要调用 dependArray 函数逐个触发数组每个元素的依赖收集
           if (Array.isArray(value)) {
             dependArray(value)
           }
@@ -287,24 +328,44 @@ export function defineReactive (
       }
       return value
     },
+    // set 函数也要完成两个重要的事情： 1. 为属性设置新值，2. 触发相应的依赖，即当属性被修改的时候如何触发依赖。
     set: function reactiveSetter (newVal) {
+      //取得属性原有的值。因为我们需要拿到原有的值与新的值作比较，并且只有在原有值与新设置的值不相等的情况下才需要触发依赖和重新设置属性值
       const value = getter ? getter.call(obj) : val
       /* eslint-disable no-self-compare */
+      /*
+      newVal === value： 新值与旧值 比较
+      (newVal !== newVal && value !== value)：newVal !== newVal 说明新值与新值自身都不全等，同时旧值与旧值自身也不全等。
+          在 js 中什么时候会出现一个值与自身都不全等的？答案就是 NaN， 表示新旧值都是NaN，才会执行判断
+      总结：新值与旧值相同，或者，新值和旧值都是NaN，才执行判断
+       */
       if (newVal === value || (newVal !== newVal && value !== value)) {
         return
       }
       /* eslint-enable no-self-compare */
+      //在非生产环境下，并且defineReactive函数中第4个参数有customSetter时，执行
       if (process.env.NODE_ENV !== 'production' && customSetter) {
+        /*
+        在initRender.js文件中：
+          defineReactive(vm, '$attrs', parentData && parentData.attrs || emptyObject, () => {
+            !isUpdatingChildComponent && warn(`$attrs is readonly.`, vm)
+          }, true)
+        所以，第4个参数就是customSetter，这里是一个箭头函数，用来打印辅助信息。
+         */
         customSetter()
       }
       // #7981: for accessor properties without setter
-      if (getter && !setter) return
+      if (getter && !setter) return   //getter存在，setter不存在，return
+      //以下就是调用原set函数的地方，从上面可知，setter 常量存储的是属性原有的 set 函数
       if (setter) {
-        setter.call(obj, newVal)
+        setter.call(obj, newVal)    //在这里调用原set函数
       } else {
         val = newVal
       }
+      //赋了新值以后，该值是为被观测的，所以这里再进行观测。同时使用新的观测对象重写 childOb 的值
+      // 这些操作都是在 !shallow 为真的情况下，即需要深度观测的时候才会执行。
       childOb = !shallow && observe(newVal)
+      //我们知道 dep 是属性用来收集依赖的”筐“，现在我们需要把”筐“里的依赖都执行一下,而这就是 dep.notify() 的作用
       dep.notify()
     }
   })
