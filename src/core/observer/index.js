@@ -103,6 +103,7 @@ export class Observer {
   walk (obj: Object) {
     const keys = Object.keys(obj)
     for (let i = 0; i < keys.length; i++) {
+      //搜集依赖
       defineReactive(obj, keys[i])
     }
   }
@@ -203,9 +204,12 @@ export function observe (value: any, asRootData: ?boolean): Observer | void {
  * Define a reactive property on an Object.
  */
 /**
- * @description: 该函数的核心就是 将数据对象的数据属性转换为访问器属性，即为数据对象的属性设置一对 getter/setter，增加搜集依赖
- * @param obj：数据对象
- * @param key：键
+ * @description:
+ *    该函数的核心就是 对属性进行深度观测
+ *      1. 将数据对象的数据属性转换为访问器属性，即为数据对象的属性设置一对 getter/setter，
+ *      2. 增加搜集依赖
+ * @param obj：数据对象 如data
+ * @param key：键       key
  * @param val
  * @param customSetter
  * @param shallow
@@ -245,6 +249,7 @@ export function defineReactive (
   const getter = property && property.get
   const setter = property && property.set
   //如果参数只有两个，即没有第3个参数val值，那么就要从数据对象上去获取这个值
+  //getter存在，setter不存在，即对象有属于自己的getter时，false，下面那句observe返回undefined，那么这个属性就不会被深度观测
   if ((!getter || setter) && arguments.length === 2) {
     val = obj[key]
   }
@@ -270,6 +275,7 @@ export function defineReactive (
       }
     }
     即 childOb 就是 一个观察实例对象， 比如 data.a.__ob__，因为__ob__属性的值就是一个观察实例对象
+    即：下面这句是对obj对象中深度观测，并且返回的是obj子属性，或者子对象的子属性，一直深度下去。的一个子对象的观察对象
   */
   let childOb = !shallow && observe(val)
   /*
@@ -286,9 +292,9 @@ export function defineReactive (
         a: {
           // 属性 b 通过 setter/getter 通过闭包引用着 dep 和 childOb
           b: 1
-          __ob__: {a, dep, vmCount}
+          __ob__: {value: data.a, dep, vmCount}
         }
-        __ob__: {data, dep, vmCount}
+        __ob__: {value: data, dep, vmCount}
       }
     需要注意的是，属性 a 闭包引用的 childOb 实际上就是 data.a.__ob__。而属性 b 闭包引用的 childOb 是 undefined，因为属性 b 是基本类型值，并不是对象也不是数组。
    */
@@ -307,7 +313,7 @@ export function defineReactive (
         // 这里大家要明确一件事情，即 每一个数据字段都通过闭包引用着属于自己的 dep 常量
         //这句代码的执行就意味着依赖被收集了。执行 dep 对象的 depend 方法将依赖收集到 dep 这个“筐”中，即当前属性 a 自己的筐中
         dep.depend()  //搜集依赖
-        if (childOb) {
+        if (childOb) {  //对象中没有对象，直接跳过 data = {a: 1, __ob__: {xx} }
           // childOb.dep === data.a.__ob__.dep
           // 这句话的执行说明除了要将依赖收集到属性 a 自己的“筐”里之外（搜集到a的框中的代码是上面 dep.depend 这句），还要将同样的依赖收集到 data.a.__ob__.dep 这里”筐“里
           childOb.dep.depend()  //搜集依赖
@@ -318,9 +324,18 @@ export function defineReactive (
             - childOb.dep   data.a.__ob__   这一级
               第二个”筐“里收集的依赖的触发时机是在使用 $set 或 Vue.set 给数据对象添加新属性时触发，
               我们知道由于 js 语言的限制，在没有 Proxy 之前 Vue 没办法拦截到给对象添加属性的操作。所以 Vue 才提供了 $set 和 Vue.set 等方法让我们有能力给对象添加新属性的同时触发依赖。
-              那么触发依赖是怎么做到的呢？就是通过数据对象的 __ob__ 属性做到的，因为 __ob__.dep 这个”筐“里收集了与 dep 这个”筐“同样的依赖。
+              那么触发依赖是怎么做到的呢？（对于对象中的对象），就是通过数据对象的 __ob__ 属性做到的，因为 __ob__.dep 这个”筐“里收集了与 dep 这个”筐“同样的依赖。
+
+              Vue.set = function (obj, key, val) {
+                defineReactive(obj, key, val)
+                obj.__ob__.dep.notify() // 相当于 data.a.__ob__.dep.notify()
+              }
+              Vue.set(data.a, 'c', 1)
+
+              所以 __ob__ 属性以及 __ob__.dep 的主要作用是为了添加、删除属性时有能力触发依赖
            */
-          //如果读取的属性值是数组，那么需要调用 dependArray 函数逐个触发数组每个元素的依赖收集
+          //如果读取的属性值是数组，那么需要调用 dependArray 函数逐个触发数组每个元素的依赖收集,深度搜集。
+          // 数组的搜集和对象的搜集方法不一样，结果一样。
           if (Array.isArray(value)) {
             dependArray(value)
           }
@@ -355,7 +370,9 @@ export function defineReactive (
         customSetter()
       }
       // #7981: for accessor properties without setter
-      if (getter && !setter) return   //getter存在，setter不存在，return
+      //getter存在，setter不存在，即对象有属于自己的getter时
+      if (getter && !setter) return
+
       //以下就是调用原set函数的地方，从上面可知，setter 常量存储的是属性原有的 set 函数
       if (setter) {
         setter.call(obj, newVal)    //在这里调用原set函数
