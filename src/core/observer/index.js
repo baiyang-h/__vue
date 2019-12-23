@@ -83,12 +83,68 @@ export class Observer {
     def(value, '__ob__', this)
     //数组和对象的处理方式是不一样的
     if (Array.isArray(value)) {   //value是数组时
-      //hasProto 表示 __proto__是否可以使用
+/* 例子:
+// 要拦截的数组变异方法
+const mutationMethods = [
+  'push',
+  'pop',
+  'shift',
+  'unshift',
+  'splice',
+  'sort',
+  'reverse'
+]
+
+const arrayMethods = Object.create(Array.prototype) // 实现 arrayMethods.__proto__ === Array.prototype
+const arrayProto = Array.prototype  // 缓存 Array.prototype
+
+mutationMethods.forEach(method => {
+  arrayMethods[method] = function (...args) {
+    const result = arrayProto[method].apply(this, args)
+
+    console.log(`执行了代理原型的 ${method} 函数`)
+
+    return result
+  }
+})
+---------------------------------  兼容__proto__情况
+const arr = []
+arr.__proto__ = arrayMethods
+arr.push(1)
+--------------------------------- 不兼容时
+const arr = []
+const arrayKeys = Object.getOwnPropertyNames(arrayMethods)
+
+arrayKeys.forEach(method => {
+  arr[method] = arrayMethods[method]
+})
+上面这种直接在数组实例上定义的属性是可枚举的，所以更好的做法是使用 Object.defineProperty：
+arrayKeys.forEach(method => {
+  Object.defineProperty(arr, method, {
+    enumerable: false,
+    writable: true,
+    configurable: true,
+    value: arrayMethods[method]
+  })
+})
+
+下面要实现的就是类似功能
+*/
+      //hasProto 表示 __proto__是否可以使用。因为 __proto__ 属性是在 IE11+ 才开始支持
+      /*
+      无论是 protoAugment 函数还是 copyAugment 函数，他们的目的只有一个：把数组实例与代理原型或与代理原型中定义的函数联系起来，从而拦截数组变异方法。
+      即 拦截了数组上原生的变异方法，在不改变原生方法的情况下，进行了重新修改数组的变异方法。 通过原型链或在实例对象上重新定义同名方法。
+      这样当我们尝试通过这些变异方法修改数组时是会触发相应的依赖(观察者)的。
+       */
       if (hasProto) {
+        //结果是 value.__proto__ = arrayMethods
+        //arrayMethods
         protoAugment(value, arrayMethods)
       } else {
+        //allayKeys: ['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse']
         copyAugment(value, arrayMethods, arrayKeys)
       }
+      //递归，对于深层次的 数组进行 观测
       this.observeArray(value)
     } else {  //value是对象时
       this.walk(value)
@@ -138,6 +194,7 @@ function protoAugment (target, src: Object) {
 function copyAugment (target: Object, src: Object, keys: Array<string>) {
   for (let i = 0, l = keys.length; i < l; i++) {
     const key = keys[i]
+    //使用 def 函数在数组实例上定义与数组变异方法同名的且不可枚举的函数,这样就实现了拦截操作
     def(target, key, src[key])
   }
 }
@@ -155,6 +212,7 @@ function copyAugment (target: Object, src: Object, keys: Array<string>) {
  *  会给数据对象增加一个 __ob__ 属性，表示是一个观测对象，其值就是一个观察实例对象
  * @param value: 要观测的数据，如 Vue中的 data 对象
  * @param asRootData： 一个布尔值，代表将要被观测的数据是否是根级数据
+ *    可以看到在调用 observe 观测 data 对象的时候 asRootData 参数为 true。而在后续的递归观测中调用 observe 的时候省略了 asRootData 参数。所以所谓的根数据对象就是 data 对象。
  * @returns {Observer|void}
      ob: {
         value: data, // value 属性指向 data 数据对象本身，这是一个循环引用
@@ -194,6 +252,7 @@ export function observe (value: any, asRootData: ?boolean): Observer | void {
   ) {
     ob = new Observer(value)
   }
+  //是根数据 即data才 true
   if (asRootData && ob) {
     ob.vmCount++
   }
@@ -293,7 +352,7 @@ export function defineReactive (
           // 属性 b 通过 setter/getter 通过闭包引用着 dep 和 childOb
           b: 1
           __ob__: {value: data.a, dep, vmCount}
-        }
+        },
         __ob__: {value: data, dep, vmCount}
       }
     需要注意的是，属性 a 闭包引用的 childOb 实际上就是 data.a.__ob__。而属性 b 闭包引用的 childOb 是 undefined，因为属性 b 是基本类型值，并不是对象也不是数组。
@@ -334,8 +393,12 @@ export function defineReactive (
 
               所以 __ob__ 属性以及 __ob__.dep 的主要作用是为了添加、删除属性时有能力触发依赖
            */
-          //如果读取的属性值是数组，那么需要调用 dependArray 函数逐个触发数组每个元素的依赖收集,深度搜集。
-          // 数组的搜集和对象的搜集方法不一样，结果一样。
+          /*
+          如果读取的属性值是数组，那么需要调用 dependArray 函数逐个触发数组每个元素的依赖收集,深度搜集。
+          数组的搜集和对象的搜集方法不一样，结果一样。
+          数组比较特别，因为数组的键是一个索引，不能被Object.defineProperty所监听。为了搜集依赖，这个时候dependArray就起作用了
+          正是因为数组的索引不是”访问器属性“，所以当有观察者依赖数组的某一个元素时是触发不了这个元素的 get 函数的，当然也就收集不到依赖。这个时候就是 dependArray 函数发挥作用的时候了。
+           */
           if (Array.isArray(value)) {
             dependArray(value)
           }
@@ -394,21 +457,32 @@ export function defineReactive (
  * already exist.
  */
 export function set (target: Array<any> | Object, key: any, val: any): any {
+  //1. isUndef 函数用来判断一个值是否是 undefined 或 null，如果是则返回 true
+  //2. isPrimitive函数用来判断一个值是否是原始类型值，如果是则返回 true。即：string、number、boolean以及 symbol。
   if (process.env.NODE_ENV !== 'production' &&
     (isUndef(target) || isPrimitive(target))
   ) {
     warn(`Cannot set reactive property on undefined, null, or primitive value: ${(target: any)}`)
   }
+  //如果 target 是一个数组，并且 key 是一个有效的数组索引，则true
   if (Array.isArray(target) && isValidArrayIndex(key)) {
     target.length = Math.max(target.length, key)
     target.splice(key, 1, val)
     return val
   }
+  //如果 target 不是一个数组，那么必然就是纯对象了，当给一个纯对象设置属性的时候，假设该属性已经在对象上有定义了，那么只需要直接设置该属性的值即可，这将自动触发响应，因为已存在的属性是响应式的
   if (key in target && !(key in Object.prototype)) {
     target[key] = val
     return val
   }
+  // 代码运行到了这里，那说明正在给对象添加一个全新的属性
   const ob = (target: any).__ob__
+  /*
+  1. target._isVue：只有Vue实例对象上才有_isVue。
+      所以：不能修改实例属性。
+  2. 只有根数据对象的ob.vmCount才是>0, 为true。
+      所以：所谓的根数据对象就是data。当使用 Vue.set/$set 函数为根数据对象添加属性时，是不被允许的。
+   */
   if (target._isVue || (ob && ob.vmCount)) {
     process.env.NODE_ENV !== 'production' && warn(
       'Avoid adding reactive properties to a Vue instance or its root $data ' +
@@ -416,10 +490,12 @@ export function set (target: Array<any> | Object, key: any, val: any): any {
     )
     return val
   }
+  // target 也许原本就是非响应的,此时直接赋值就可以了。比如随意一个对象用Vue.set方法增加属性
   if (!ob) {
     target[key] = val
     return val
   }
+  // defineReactive 函数设置属性值，这是为了保证新添加的属性是响应式的
   defineReactive(ob.value, key, val)
   ob.dep.notify()
   return val
