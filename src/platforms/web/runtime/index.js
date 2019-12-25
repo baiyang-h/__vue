@@ -35,9 +35,10 @@ Vue.prototype.__patch__ = inBrowser ? patch : noop
 
 // public mount method
 Vue.prototype.$mount = function (
-  el?: string | Element,
-  hydrating?: boolean
+  el?: string | Element,    //第一个参数 el 可以是一个字符串也可以是一个 DOM 元素
+  hydrating?: boolean       //第二个参数 hydrating 是用于 Virtual DOM 的补丁算法的
 ): Component {
+  // 用来根据给定的参数在 DOM 中查找对应的元素并返回。总之如果在浏览器环境下，那么 el 变量将存储着 DOM 元素(理想情况下)
   el = el && inBrowser ? query(el) : undefined
   return mountComponent(this, el, hydrating)
 }
