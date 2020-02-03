@@ -43,38 +43,54 @@ export default class Watcher {
   value: any;
 
   constructor (
-    vm: Component,
-    expOrFn: string | Function,
-    cb: Function,
-    options?: ?Object,
-    isRenderWatcher?: boolean
+    vm: Component,                        // 组件实例对象 vm
+    expOrFn: string | Function,           // 要观察的表达式 expOrFn，如监听的'a'属性。 函数的作用 主要就是 把渲染函数生成的虚拟DOM渲染成真正的DOM。重要的是“被观测目标”能否触发数据属性的 get 拦截器函数
+    cb: Function,                         // 当被观察的表达式的值变化时的回调函数 cb
+    options?: ?Object,                    // 一些传递给当前观察者对象的选项 options
+    isRenderWatcher?: boolean             // 以及一个布尔值 isRenderWatcher 用来标识该观察者实例是否是渲染函数的观察者，只有在mountComponent函数中创建渲染函数观察者时这个参数为真
   ) {
+    /*
+      1.将当前组件实例对象赋值给该观察者实例的 this.vm 属性，每一个观察者实例对象都有一个vm实例属性，该属性指明了这个观察者是属于哪一个组件的
+      2. 只有在 mountComponent 函数中创建渲染函数观察者时这个参数为真，则会将当前观察者实例赋值给 vm._watcher 属性。也就是说组件实例的 _watcher 属性的值引用着该组件的渲染函数观察者
+      3. 该组件实例的观察者都会被添加到该组件实例对象的 vm._watchers 数组中，包括渲染函数的观察者和非渲染函数的观察者
+     */
     this.vm = vm
     if (isRenderWatcher) {
       vm._watcher = this
     }
     vm._watchers.push(this)
+
     // options
     if (options) {
+      //options.deep，用来告诉当前观察者实例对象是否是深度观测
       this.deep = !!options.deep
+      //options.user，用来标识当前观察者实例对象是 开发者定义的 还是 内部定义的
+      //除了内部定义的观察者(如：渲染函数的观察者、计算属性的观察者等)之外，所有观察者都被认为是开发者定义的，这时 options.user 会自动被设置为 true。
       this.user = !!options.user
       this.lazy = !!options.lazy
+      // options.sync，用来告诉观察者当数据变化时是否同步求值并执行回调
       this.sync = !!options.sync
+      // options.before，可以理解为 Watcher 实例的钩子，当数据变化之后，触发更新之前，调用在创建渲染函数的观察者实例对象时传递的 before 选项
       this.before = options.before
     } else {
       this.deep = this.user = this.lazy = this.sync = false
     }
+
     this.cb = cb
     this.id = ++uid // uid for batching
     this.active = true
     this.dirty = this.lazy // for lazy watchers
+
+    //那么这两组属性的作用是什么呢？其实它们就是传说中用来实现避免收集重复依赖，且移除无用依赖的功能也依赖于它们
     this.deps = []
-    this.newDeps = []
     this.depIds = new Set()
+    this.newDeps = []
     this.newDepIds = new Set()
+
     this.expression = process.env.NODE_ENV !== 'production'
       ? expOrFn.toString()
       : ''
+
     // parse expression for getter
     if (typeof expOrFn === 'function') {
       this.getter = expOrFn
@@ -97,9 +113,17 @@ export default class Watcher {
 
   /**
    * Evaluate the getter, and re-collect dependencies.
+   * 该函数的作用：求值
+   * 求值的目的有两个，第一个是能够触发访问器属性的 get 拦截器函数(其中触发该函数是依赖被收集的关键)，第二个是能够获得被观察目标的值。
+   * @return 返回的是被观察目标的值， 如'a.b'的值
    */
   get () {
+    /*
+    其实 pushTarget 函数的作用就是用来为 Dep.target 属性赋值的，pushTarget 函数会将接收到的参数赋值给 Dep.target 属性，
+    我们知道传递给 pushTarget 函数的参数就是调用该函数的观察者对象，所以 Dep.target 保存着一个观察者对象，其实这个观察者对象就是即将要收集的目标
+     */
     pushTarget(this)
+
     let value
     const vm = this.vm
     try {

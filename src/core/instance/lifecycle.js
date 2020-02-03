@@ -138,6 +138,7 @@ export function lifecycleMixin (Vue: Class<Component>) {
     // based on the rendering backend used.
     if (!prevVnode) {
       // initial render
+      // vm.$el 的值将被 vm.__patch__ 函数的返回值重写
       vm.$el = vm.__patch__(vm.$el, vnode, hydrating, false /* removeOnly */)
     } else {
       // updates
@@ -211,12 +212,29 @@ export function lifecycleMixin (Vue: Class<Component>) {
 }
 
 export function mountComponent (
-  vm: Component,
-  el: ?Element,
-  hydrating?: boolean
+  vm: Component,      //组件实例 vm
+  el: ?Element,       //挂载元素 el,参数前进行了转换， 是一个dom
+  hydrating?: boolean   //hydrating 是用于 Virtual DOM 的补丁算法的
 ): Component {
+  //在组件实例对象上添加 $el 属性，其值为挂载元素 el。我们知道 $el 的值是组件模板根元素的引用，即我们使用 this.$el 得到根元素
+  //此时的el还是data中的el属性或者$mount函数传进来的参数，但是后面会被重写。
+/*
+  <div id="foo"></div>
+  <script>
+  const new Vue({
+    el: '#foo',
+    template: '<div id="bar"></div>'
+  })
+  console.log(this.$el)   //其实是bar
+
+  这是因为 vm.$el 始终是组件模板的根元素。由于我们传递了 template 选项指定了模板，那么 vm.$el 自然就是 id 为 bar 的 div 的引用。
+  假设我们没有传递 template 选项，那么根据我们前面的分析，el 选项指定的挂载点将被作为组件模板，这个时候 vm.$el 则是 id 为 foo 的 div 元素的引用
+  </script>
+*/
   vm.$el = el
+
   if (!vm.$options.render) {
+    // 如果不存在渲染函数，则声明 createEmptyVNode ，即仅仅渲染一个空的 vnode 对象
     vm.$options.render = createEmptyVNode
     if (process.env.NODE_ENV !== 'production') {
       /* istanbul ignore if */
@@ -236,8 +254,18 @@ export function mountComponent (
       }
     }
   }
+  // 触发 beforeMount 生命周期钩子
   callHook(vm, 'beforeMount')
 
+  /*
+    这段代码的作用只有一个，即定义并初始化 updateComponent 函数，这个函数将用作创建 Watcher 实例时传递给 Watcher 构造函数的第二个参数
+    最终其实都是执行 vm._update(vm._render(), hydrating)
+      - vm._render 函数的作用是调用 vm.$options.render 函数并返回生成的虚拟节点(vnode)
+      - vm._update 函数的作用是把 vm._render 函数生成的虚拟节点渲染成真正的 DOM
+
+    执行完该段代码的时候，我们可以简单地认为 updateComponent 函数的作用就是：把渲染函数生成的虚拟DOM渲染成真正的DOM
+      其实在 vm._update 内部是通过虚拟DOM的补丁算法(patch)来完成的
+   */
   let updateComponent
   /* istanbul ignore if */
   if (process.env.NODE_ENV !== 'production' && config.performance && mark) {
@@ -246,7 +274,7 @@ export function mountComponent (
       const id = vm._uid
       const startTag = `vue-perf-start:${id}`
       const endTag = `vue-perf-end:${id}`
-
+      // 分别统计了 vm._render() 函数以及 vm._update() 函数的运行性能
       mark(startTag)
       const vnode = vm._render()
       mark(endTag)
@@ -266,14 +294,19 @@ export function mountComponent (
   // we set this to vm._watcher inside the watcher's constructor
   // since the watcher's initial patch may call $forceUpdate (e.g. inside child
   // component's mounted hook), which relies on vm._watcher being already defined
+  /*
+  Watcher 观察者实例将对 updateComponent 函数求值，我们知道 updateComponent 函数的执行会间接触发渲染函数(vm.$options.render)的执行，
+  而渲染函数的执行则会触发数据属性的 get 拦截器函数，从而将依赖(观察者)收集，当数据变化时将重新执行 updateComponent 函数，这就完成了重新渲染
+  同时我们把这段代码中实例化的观察者对象称为 渲染函数的观察者
+   */
   new Watcher(vm, updateComponent, noop, {
-    before () {
-      if (vm._isMounted && !vm._isDestroyed) {
-        callHook(vm, 'beforeUpdate')
-      }
+  before () {
+    if (vm._isMounted && !vm._isDestroyed) {
+      callHook(vm, 'beforeUpdate')
     }
-  }, true /* isRenderWatcher */)
-  hydrating = false
+  }
+}, true /* isRenderWatcher */)
+hydrating = false
 
   // manually mounted instance, call mounted on self
   // mounted is called for render-created child components in its inserted hook

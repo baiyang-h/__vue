@@ -40,6 +40,7 @@ Vue.prototype.$mount = function (
 ): Component {
   // 用来根据给定的参数在 DOM 中查找对应的元素并返回。总之如果在浏览器环境下，那么 el 变量将存储着 DOM 元素(理想情况下)
   el = el && inBrowser ? query(el) : undefined
+// 无论是完整版 Vue 的 $mount 函数还是运行时版 Vue 的 $mount 函数，他们最终都将通过 mountComponent 函数去真正的挂载组件
   return mountComponent(this, el, hydrating)
 }
 
