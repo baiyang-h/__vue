@@ -161,11 +161,18 @@ function callActivatedHooks (queue) {
  * Jobs with duplicate IDs will be skipped unless it's
  * pushed when the queue is being flushed.
  */
+//该函数的作用是：它将观察者放到一个队列中等待所有突变完成之后统一执行更新。
 export function queueWatcher (watcher: Watcher) {
   const id = watcher.id
+  //该判断为了为了避免将相同的观察者重复加入队列。
   if (has[id] == null) {
     has[id] = true
+    /*
+      flushing 变量是一个标志。我们知道放入队列 queue 中的所有观察者将会在突变完成之后统一执行更新，当更新开始时会将 flushing 变量的值设置为 true，代表着此时正在执行更新。
+      所以只有当队列没有执行更新时才会简单地将观察者追加到队列的尾部。
+     */
     if (!flushing) {
+      //
       queue.push(watcher)
     } else {
       // if already flushing, splice the watcher based on its id
@@ -178,12 +185,15 @@ export function queueWatcher (watcher: Watcher) {
     }
     // queue the flush
     if (!waiting) {
+      // 在 if 语句块内先将 waiting 的值设置为 true，这意味着无论调用多少次 queueWatcher 函数，该 if 语句块的代码只会执行一次。
       waiting = true
 
       if (process.env.NODE_ENV !== 'production' && !config.async) {
         flushSchedulerQueue()
         return
       }
+      //flushSchedulerQueue 函数的作用之一就是用来将队列中的观察者统一执行更新的
+      //对于 nextTick 应该已经很熟悉了，其实最好理解的方式就是把 nextTick 看做 setTimeout(fn, 0)
       nextTick(flushSchedulerQueue)
     }
   }

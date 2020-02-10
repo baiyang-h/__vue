@@ -86,6 +86,7 @@ if (typeof Promise !== 'undefined' && isNative(Promise)) {
 
 export function nextTick (cb?: Function, ctx?: Object) {
   let _resolve
+  // callbacks数组中添加函数
   callbacks.push(() => {
     if (cb) {
       try {
@@ -97,6 +98,23 @@ export function nextTick (cb?: Function, ctx?: Object) {
       _resolve(ctx)
     }
   })
+  /*
+    pending是一个标识，它的真假代表回调队列是否处于等待刷新的状态，初始值是 false 代表回调队列为空不需要等待刷新，true代表着此时回调队列不为空，正在等待刷新。
+    例子：
+    this.$nextTick(() => { console.log(1) })
+    this.$nextTick(() => { console.log(2) })
+    this.$nextTick(() => { console.log(3) })
+    即一开始第一个nextTick方法执行才会进入这个判断，后面pending为true，不会再执行了。直到要在flushCallbacks方法被执行时才会将pending修改为false，可再次进入判断。
+    为什么这么做？ 只执行第一次，执行timerFunc方法后，flushCallbacks 函数分别注册为 microtask 或 (macro)task，这样就要等待当前执行栈全部执行好后才会执行 flushCallbacks方法，
+    此时callbacks数组中已经存储了所有的nextTick方法中的回调函数，然后使用循环同时执行网所有回调。在flushCallbacks方法中重新将callbacks清空、pending重新设置为false
+    1. 将nextTick函数中的cb参数存入callbacks数组中
+    2. flushCallbacks函数注册为 microtask 或 (macro)task。
+    3. 当前执行栈全部执行完以后，事件循环机制会执行microtask 或 (macro)task，此时会执行flushCallbacks函数
+    4. 执行flushCallbacks函数，
+       4.1 在该函数内部pending重新设置为false
+       4.2 callbacks数组重新清空，可以重新放入nextTick的cb回调参数
+       4.3 循环callbacks的浅拷贝对象，执行所有的nextTick的cb回调函数
+   */
   if (!pending) {
     pending = true
     timerFunc()

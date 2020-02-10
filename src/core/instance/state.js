@@ -237,6 +237,7 @@ function initComputed (vm: Component, computed: Object) {
 
   for (const key in computed) {
     const userDef = computed[key]
+    // getter为 相应属性计算属性的函数
     const getter = typeof userDef === 'function' ? userDef : userDef.get
     if (process.env.NODE_ENV !== 'production' && getter == null) {
       warn(
@@ -247,18 +248,21 @@ function initComputed (vm: Component, computed: Object) {
 
     if (!isSSR) {
       // create internal watcher for the computed property.
+      // watchers的引用操作就是对vm._computedWatchers的操作
       watchers[key] = new Watcher(
         vm,
         getter || noop,
         noop,
-        computedWatcherOptions
+        computedWatcherOptions    //这个参数是一个配置对象， 这里是为了表示该观察者对象是计算属性的观察者
       )
     }
 
     // component-defined computed properties are already defined on the
     // component prototype. We only need to define computed properties defined
     // at instantiation here.
+    // 使用计算属性的名字检查组件实例对象上是否已经有了同名的定义，如果该名字已经定义在组件实例对象上，那么有可能是 data 数据或 props 数据或 methods 数据之一，对于 data 和 props 来讲他们是不允许被 computed 选项中的同名属性覆盖的
     if (!(key in vm)) {
+      // 在组件实例对象上定义与计算属性同名的组件实例属性，而且是一个访问器属性
       defineComputed(vm, key, userDef)
     } else if (process.env.NODE_ENV !== 'production') {
       if (key in vm.$data) {
@@ -270,18 +274,22 @@ function initComputed (vm: Component, computed: Object) {
   }
 }
 
+// 在组件实例对象上定义与计算属性同名的组件实例属性，而且是一个访问器属性
 export function defineComputed (
   target: any,
   key: string,
   userDef: Object | Function
 ) {
+  // shouldCache是一个布尔值，用来标识是否应该缓存值，也就是说只有在非服务端渲染的情况下计算属性才会缓存值。shouldCache为true
   const shouldCache = !isServerRendering()
   if (typeof userDef === 'function') {
+    // 计算属性值为一个函数
     sharedPropertyDefinition.get = shouldCache
       ? createComputedGetter(key)
       : createGetterInvoker(userDef)
     sharedPropertyDefinition.set = noop
   } else {
+    // 计算属性值为一个对象
     sharedPropertyDefinition.get = userDef.get
       ? shouldCache && userDef.cache !== false
         ? createComputedGetter(key)
@@ -416,8 +424,10 @@ export function stateMixin (Vue: Class<Component>) {
       return createWatcher(vm, expOrFn, cb, options)
     }
     options = options || {}
+    //options.user 的值设置为 true,这代表该观察者实例是用户创建的
     options.user = true
     const watcher = new Watcher(vm, expOrFn, cb, options)
+    // immediate 选项用来在属性或函数被侦听后立即执行回调
     if (options.immediate) {
       try {
         cb.call(vm, watcher.value)

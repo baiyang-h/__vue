@@ -58,6 +58,7 @@ export default class Watcher {
     if (isRenderWatcher) {
       vm._watcher = this
     }
+    // vm._watchers中存储着该组件所有的观察者实例对象，即（渲染函数观察者对象、计算属性观察者对象、自定义观察者对象）
     vm._watchers.push(this)
 
     // options
@@ -67,6 +68,7 @@ export default class Watcher {
       //options.user，用来标识当前观察者实例对象是 开发者定义的 还是 内部定义的
       //除了内部定义的观察者(如：渲染函数的观察者、计算属性的观察者等)之外，所有观察者都被认为是开发者定义的，这时 options.user 会自动被设置为 true。
       this.user = !!options.user
+      // true 表示是一个计算属性的观察者对象，false表示非计算属性的观察者
       this.lazy = !!options.lazy
       // options.sync，用来告诉观察者当数据变化时是否同步求值并执行回调
       this.sync = !!options.sync
@@ -137,7 +139,9 @@ export default class Watcher {
     } finally {
       // "touch" every property so they are all tracked as
       // dependencies for deep watching
+      // 深度观测
       if (this.deep) {
+        // traverse 函数的作用就是递归地读取被观察属性的所有子属性的值，这样被观察属性的所有子属性都将会触发 getter 收集到观察者，从而达到深度观测的目的
         traverse(value)
       }
       popTarget()
@@ -192,6 +196,7 @@ export default class Watcher {
     } else if (this.sync) {
       this.run()
     } else {
+      // queueWatcher函数的作用：它将观察者放到一个队列中等待所有突变完成之后统一执行更新
       queueWatcher(this)
     }
   }
@@ -201,8 +206,12 @@ export default class Watcher {
    * Will be called by the scheduler.
    */
   run () {
+    //this.active 用来标识一个观察者是否处于激活状态，或可用状态。
     if (this.active) {
+      //对于setter后， 重新求值
       const value = this.get()
+      //该判断对于渲染函数的观察者来讲并不会执行这个if，因为updateComponent 函数返回的永远是undefined。实际上if语句块内的代码是为非渲染函数类型的观察者准备的。
+      //注意：value !== this.value || isObject(value)  可以是一个对象的情况，并且 value 和 this.value是引用传值，所以value === this.value
       if (
         value !== this.value ||
         // Deep watchers and watchers on Object/Arrays should fire even
@@ -214,7 +223,9 @@ export default class Watcher {
         // set new value
         const oldValue = this.value
         this.value = value
+        // 如果观察者对象的 this.user 为真意味着这个观察者是开发者定义的
         if (this.user) {
+          // 开发者自己定义的回调，特点是回调函数是由开发者编写的，所以这些回调函数在执行的过程中其行为是不可预知的，很可能出现错误，这时候将其放到一个 try...catch 语句块中
           try {
             this.cb.call(this.vm, value, oldValue)
           } catch (e) {
@@ -250,10 +261,12 @@ export default class Watcher {
    * Remove self from all dependencies' subscriber list.
    */
   teardown () {
+    // this.active 属性是否为真，如果为假则说明该观察者已经不处于激活状态，什么都不需要做
     if (this.active) {
       // remove self from vm's watcher list
       // this is a somewhat expensive operation so we skip it
       // if the vm is being destroyed.
+      // 每个组件实例都有一个 vm._isBeingDestroyed 属性，它是一个标识，为真说明该组件实例已经被销毁了，为假说明该组件还没有被销毁
       if (!this.vm._isBeingDestroyed) {
         remove(this.vm._watchers, this)
       }
@@ -261,6 +274,7 @@ export default class Watcher {
       while (i--) {
         this.deps[i].removeSub(this)
       }
+      // 表示该观察者对象已经处于非激活状态了
       this.active = false
     }
   }
