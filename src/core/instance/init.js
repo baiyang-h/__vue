@@ -194,7 +194,10 @@ export function initMixin (Vue: Class<Component>) {
       props、methods、data、computed 和 watch 等进行初始化
      */
     initState(vm)
-    //在data、props之后
+    /*
+    在data、props之后
+    provide 选项的初始化及实现，它本质上就是在组件实例对象上添加了 vm._provided 属性，并保存了用于子代组件的数据。
+     */
     initProvide(vm) // resolve provide after data/props
     callHook(vm, 'created')
 

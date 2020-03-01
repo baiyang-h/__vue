@@ -187,13 +187,15 @@ export function queueWatcher (watcher: Watcher) {
     if (!waiting) {
       // 在 if 语句块内先将 waiting 的值设置为 true，这意味着无论调用多少次 queueWatcher 函数，该 if 语句块的代码只会执行一次。
       waiting = true
-
+      // watch 同步时执行
       if (process.env.NODE_ENV !== 'production' && !config.async) {
+        //直接执行 同步
         flushSchedulerQueue()
         return
       }
       //flushSchedulerQueue 函数的作用之一就是用来将队列中的观察者统一执行更新的
       //对于 nextTick 应该已经很熟悉了，其实最好理解的方式就是把 nextTick 看做 setTimeout(fn, 0)
+      // 异步
       nextTick(flushSchedulerQueue)
     }
   }

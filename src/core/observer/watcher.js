@@ -241,6 +241,7 @@ export default class Watcher {
   /**
    * Evaluate the value of the watcher.
    * This only gets called for lazy watchers.
+   *  用于惰性观察者，如计算属性
    */
   evaluate () {
     this.value = this.get()

@@ -287,7 +287,7 @@ export function defineReactive (
   obj: Object,
   key: string,
   val: any,
-  customSetter?: ?Function,
+  customSetter?: ?Function,       //自定义setter
   shallow?: boolean
 ) {
   // 每个字段的 Dep 对象都被用来收集那些属于对应字段的依赖。  看下面，还有一个搜集依赖。对他们的用处，下面写了说明

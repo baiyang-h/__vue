@@ -78,22 +78,42 @@ export function initState (vm: Component) {
 }
 
 function initProps (vm: Component, propsOptions: Object) {
+  // propsData 用于存储外界传递进来的props的值
   const propsData = vm.$options.propsData || {}
   const props = vm._props = {}
   // cache prop keys so that future props updates can iterate using Array
   // instead of dynamic object key enumeration.
   const keys = vm.$options._propKeys = []
+  // isRoot 常量用来标识是否是根组件， true为根组件，false不为根组件
   const isRoot = !vm.$parent
   // root instance props should be converted
+  /*
+   不是根组件会执行这个判断
+   这段代码说明，只有当不是根组件的时候才会关闭开关，这说明如果当前组件实例是根组件的话，那么定义的 props 的值也会被定义为响应式数据（看下面defineReactive）
+   */
   if (!isRoot) {
+    // 这个函数的作用类似一个开关, 参数为 true 时说明打开了开关，此时可以对数据进行观测，为 false 时可以理解为关闭了开关，此时数据对象将不会被观测
     toggleObserving(false)
   }
+  /*
+    为什么这里一开始先关闭开关，等for in 循环结束后又打开开关呢？
+    为了在执行下面的defineReactive函数内部的observe时，不进行数据观察
+    所以我们可以得出一个结论：在定义 props 数据时，不将 prop 值转换为响应式数据，这里要注意的是：由于 props 本身是通过 defineReactive 定义的，所以 props 本身是响应式的，但没有对值进行深度定义。
+    为什么这样做呢？很简单，我们知道 props 是来自外界的数据，或者更具体一点的说，props 是来自父组件的数据，这个数据如果是一个对象(包括纯对象和数组)，那么它本身可能已经是响应式的了，所以不再需要重复定义。
+   */
+
+  /*
+  propsOptions它就是 props 选项参数
+   */
   for (const key in propsOptions) {
-    keys.push(key)
+    keys.push(key)      //keys 一个数组，存储所有props的key键
+    // validateProp 函数的作用：用来校验名字(key)给定的 prop 数据是否符合预期的类型，并返回相应 prop 的值(或默认值)。
     const value = validateProp(key, propsOptions, propsData, vm)
     /* istanbul ignore else */
     if (process.env.NODE_ENV !== 'production') {
+      // 将 prop 的名字转为连字符加小写的形式
       const hyphenatedKey = hyphenate(key)
+      // 判断 prop 的名字是否是保留的属性(attribute)
       if (isReservedAttribute(hyphenatedKey) ||
           config.isReservedAttr(hyphenatedKey)) {
         warn(
@@ -101,6 +121,7 @@ function initProps (vm: Component, propsOptions: Object) {
           vm
         )
       }
+      // 第四个参数是 customSetter，即自定义的 setter，这个 setter 会在你尝试修改 props 数据时触发，并打印警告信息提示你不要直接修改 props 数据
       defineReactive(props, key, value, () => {
         if (!isRoot && !isUpdatingChildComponent) {
           warn(
@@ -113,15 +134,18 @@ function initProps (vm: Component, propsOptions: Object) {
         }
       })
     } else {
+      // props 常量与 vm._props 属性具有相同的引用，所以这等价于在 vm._props 上定义了 prop 数据。
       defineReactive(props, key, value)
     }
     // static props are already proxied on the component's prototype
     // during Vue.extend(). We only need to proxy props defined at
     // instantiation here.
+    // 这么做的目的是避免每次创建子组件实例时都会调用 proxy 函数去做代理,  因为可能会创建多个组件实例，原型链上，他们都是通过一个构造函数创建的，传入的key一样等
     if (!(key in vm)) {
       proxy(vm, `_props`, key)
     }
   }
+  // 又调用 toggleObserving(true) 函数将开关开启，这么做的目的是不影响后续代码的功能，因为这个开关是全局的
   toggleObserving(true)
 }
 
@@ -310,11 +334,20 @@ export function defineComputed (
 }
 
 function createComputedGetter (key) {
+  /*
+  compA () {
+    return this.a +1
+  }
+  如果计算属性 compA 依赖了数据对象的 a 属性，那么属性 a 将收集计算属性 compA 的 计算属性观察者对象，而 计算属性观察者对象 将收集 渲染函数观察者对象，整个路线是这样的
+   */
   return function computedGetter () {
     const watcher = this._computedWatchers && this._computedWatchers[key]
     if (watcher) {
+      // 计算属性的watcher.dirty 等于watcher.lazy = true
+      // 1. 计算属性观察者的deps中加入相关的依赖， 2. 相关依赖中的subs中加入计算属性观察者
       if (watcher.dirty) {
-        watcher.evaluate()
+        // 其实就是执行计算属性的这个函数
+        watcher.evaluate()  //执行完这个后watcher.dirty = false
       }
       if (Dep.target) {
         watcher.depend()
@@ -347,6 +380,7 @@ function initMethods (vm: Component, methods: Object) {
           vm
         )
       }
+      // 什么是保留的属性名呢？根据 isReserved 函数可知以字符 $ 或 _ 开头的名字为保留名
       if ((key in vm) && isReserved(key)) {
         warn(
           `Method "${key}" conflicts with an existing Vue instance method. ` +
