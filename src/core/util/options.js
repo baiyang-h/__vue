@@ -69,8 +69,11 @@ if (process.env.NODE_ENV !== 'production') {
  * @description:
  *    将to和from对象进行合并后的一个终极合并策略
  *    - 没有parentVal直接返回childVal
- *      - childVal中没有parentVal的属性，则将parentVal的属性和值混合到childVal上
- *      - childVal中有和parentVal同名的属性，判断值是否相同，如果不相同，判断是否值为一个纯对象，如果是，则继续调用mergeData函数，进行深度合并
+ *    - 如果有 parentVal 值
+ *      - 如果 from 对象中的 key 不在 to 对象中，则使用 set 函数为 to 对象设置 key 及相应的值
+ *      - 如果 from 对象中的 key 在 to 对象中，且这两个属性的值都是纯对象则递归地调用 mergeData 函数进行深度合并，
+ *      - 其他情况不做处理
+ *
  *    反正主要就是将parentVal混合到childVal上，如果childVal有同名属性值，以childVal优先，深度合并，对象里一层一层往下
  *  @param:
  *     to: childVal   是一个对象
@@ -117,34 +120,31 @@ function mergeData (to: Object, from: ?Object): Object {
  *      - 子类data存在、父类data存在，一个mergedDataFn函数
  *    2. 如果是非子组件的时候
  *      - data 函数为 mergedInstanceDataFn 函数
-
+ mergeDataOrFn
      结论：options.data 选项最终被处理为一个函数，这些函数的执行结果就是最终的数据对象。这是因为，通过函数返回数据对象，保证了每个组件实例都有一个唯一的数据副本，避免了组件间数据互相影响。不然组件之间都是同一个对象，会互相影响
      后面对Vue初始化数据状态的时候，就是通过执行 strats.data 函数来获取数据并对其进行处理的。
      疑问：我们知道在合并阶段 strats.data 将被处理成一个函数，但是这个函数并没有被执行，而是到了后面初始化的阶段才执行的，这个时候才会调用 mergeData 对数据进行合并处理，那这么做的目的是什么呢？
      其实这么做是有原因的，后面讲到 Vue 的初始化的时候，大家就会发现 inject 和 props 这两个选项的初始化是先于 data 选项的，这就保证了我们能够使用 props 初始化 在data 中
      - 1. 由于 props 的初始化先于 data 选项的初始化
-     - 2. data 选项是在初始化的时候才求值的，你也可以理解为在初始化的时候才使用 mergeData 进行数据合并。
+       - 2. data 选项是在初始化的时候才求值的，你也可以理解为在初始化的时候才使用 mergeData 进行数据合并。
  */
 export function mergeDataOrFn (
-  parentVal: any,       //传入parent的是data属性，即Vue.options.data值
-  childVal: any,        //传入child的是data属性   即new Vue({}) options参数中传入的data值
+  parentVal: any,       //传入parent的是data属性，例如 Vue.options.data值
+  childVal: any,        //传入child的是data属性   例如 new Vue({}) options参数中传入的data值
   vm?: Component
 ): ?Function {
-  if (!vm) {    //没有传入vm参数，处理的是子组件选项
-    // in a Vue.extend merge, both should be functions
-    //选项是在调用 Vue.extend 函数时进行合并处理的，此时父子 data 选项都应该是函数
-    //再次说明了，当拿不到 vm 这个参数的时候，合并操作是在 Vue.extend 中进行的，也就是在处理子组件的选项
+  // 没有传入vm参数，处理的是子组件选项
+  // in a Vue.extend merge, both should be functions
+  //选项是在调用 Vue.extend 函数时进行合并处理的，此时父子 data 选项都应该是函数
+  //再次说明了，当拿不到 vm 这个参数的时候，合并操作是在 Vue.extend 中进行的，也就是在处理子组件的选项
+  if (!vm) {
+    // 如果没有子选项则使用父选项，没有父选项就直接使用子选项，且这两个选项都能保证是函数，如果父子选项同时存在，则代码继续进行
     if (!childVal) {
       return parentVal
     }
     if (!parentVal) {
       return childVal
     }
-    // when parentVal & childVal are both present,
-    // we need to return a function that returns the
-    // merged result of both functions... no need to
-    // check if parentVal is a function here because
-    // it has to be a function to pass previous merges.
     //childVal和parentVal都为true时，即父组件的data有值和子组件的data都有值时，返回该函数
     return function mergedDataFn () {
       //我们知道 childVal 要么是子组件的选项，即构造者.options.data，要么是使用 new 操作符创建实例时的选项，即实例.data，无论是哪一种，总之 childVal 要么是函数，要么就是一个纯对象
@@ -177,7 +177,7 @@ export function mergeDataOrFn (
 
 /**
  * @description: 在 strats 策略对象上添加 data 策略函数，用来合并处理 data 选项
- *
+ * strats.data 策略函数在处理 data 选项后返回的始终是一个函数，且该函数的执行结果就是最终的数据对象
  */
 strats.data = function (
   parentVal: any,     //传入的是data属性
@@ -186,7 +186,9 @@ strats.data = function (
 ): ?Function {
   //我们知道当没有 vm 参数时，说明处理的是子组件的选项
   if (!vm) {
-    if (childVal && typeof childVal !== 'function') {  //首先判断是否传递了子组件的 data 选项，并且检测 childVal 的类型是不是 function
+    //首先判断是否传递了子组件的 data 选项，并且检测 childVal 的类型是不是 function，所以我们一般写子组件的时候 data 都被要求是函数的写法
+    // 如果不是函数，直接返回 parentVal
+    if (childVal && typeof childVal !== 'function') {
       // 子组件中的 data 必须是一个返回对象的函数
       process.env.NODE_ENV !== 'production' && warn(
         'The "data" option should be a function ' +
@@ -201,7 +203,7 @@ strats.data = function (
     return mergeDataOrFn(parentVal, childVal)   //注意没有传vm，  子组件
   }
   // 处理的选项不是子组件的选项--------mergeDataOrFn方法返回的永远是一个函数
-  return mergeDataOrFn(parentVal, childVal, vm)   //注意传了vm， 不是子组件
+  return mergeDataOrFn(parentVal, childVal, vm)   //注意传了vm， 不是子组件，而是正常使用 new 操作符创建实例时的选项
 }
 
 
@@ -386,12 +388,12 @@ ASSET_TYPES.forEach(function (type) {
  *
  * Watchers hashes should not overwrite one
  * another, so we merge them as arrays.
- * @description:
+ * @description: 传入的 parentVal 和 childVal 是各自的 watch 属性
      该函数最终返回一个对象，该对象的结构有以下3种：
-     1. 无childVal时:  此处有原型是返回的这个对象，我们可以通过原型链区继承他父级的属性，即父watch上的属性
-        { __proto__: parentVal } 或者 {}
+     1. 无childVal时: 如果没有组件 watch 选项，直接以 parentVal 为原型创建对象并返回（如果有parentVal的话）
+                      return Object.create(parentVal || null)
      2. 无parentVal时:
-        返回childVal对象，即可能为： 值有可能是函数、数组、对象，反正返回childVal对象
+        直接返回childVal对象，即可能为： 值有可能是函数、数组、对象，反正返回childVal
         {
           key1: function(val) {},
           key2: [...],
@@ -401,13 +403,13 @@ ASSET_TYPES.forEach(function (type) {
           - childVal和parentVal拥有相同key时，一起混合成一个数组 [ parentVal[key], childVal[key] ]返回。
           - childVal的key不在parentVal中时，直接返回[ childVal[key] ]
         返回一个对象，键为监听key，值为一个数组,数组中可能是函数、数组、对象
-         {
+         watch: {
             key1: [x, x, ...],
             key2: [x, ...],
             ...
          }
     @return:
-      返回的是一个对象，用于绑定到options.watch上
+      被合并处理后的 watch 选项下的每个键值，有可能是一个数组，也有可能是一个函数
  */
 strats.watch = function (
   parentVal: ?Object,   //构造者的options属性对象中的watch属性，如Vue.options.watch，或const P = Vue.extend({}), P.options.watch
@@ -423,21 +425,23 @@ strats.watch = function (
    */
   if (parentVal === nativeWatch) parentVal = undefined
   if (childVal === nativeWatch) childVal = undefined
-  /* istanbul ignore if */
+  // 检测了是否有 childVal，即组件选项是否有 watch 选项，如果没有的话，就直接使用 parentVal 为原型创建对象并返回（如果有parentVal的话）。
   if (!childVal) return Object.create(parentVal || null)
   if (process.env.NODE_ENV !== 'production') {
-    // 这个函数其实是用来检测 childVal 是不是一个纯对象的，如果不是纯对象会给你一个警告
+    // 这个函数其实是用来检测 childVal 是不是一个纯对象的，如果不是纯对象会给你一个警告， 因为 Vue 中的 watch 选项需要是一个纯对象。
     assertObjectType(key, childVal, vm)
   }
+  // 接着判断是否有 parentVal，如果没有的话则直接返回 childVal，即直接使用组件选项的watch
   if (!parentVal) return childVal
-  /*** 此时 parentVal 以及 childVal 都将存在，那么就需要做合并处理了 ***/
+  // 如果存在 parentVal，即 parentVal 和 childVal 都存在，那么代码需要合并处理了
   const ret = {}
   // 将 parentVal 的属性混合到 ret 中，后面处理的都将是 ret 对象，最后返回的也是 ret 对象
   extend(ret, parentVal)
-  //这个循环的目的是：检查子选项中的key键在父选项中是否也存在，并且也有值。如果在的话将父子选项合并到一个数组，否则直接把子选项变成一个数组返回。
+  /** 这个循环的目的是：检查子选项中的key键在父选项中是否也存在，并且也有值。如果在的话将父子选项合并到一个数组，否则直接把子选项变成一个数组返回。**/
   for (const key in childVal) {
     // 由于遍历的是 childVal，所以 key 是子选项的 key，父选项中未必能获取到值，所以 parent 未必有值
     let parent = ret[key]
+    // child 是肯定有值的，因为遍历的就是 childVal 本身
     const child = childVal[key]
     // 这个 if 分支的作用就是如果 parent 存在，就将其转为数组
     if (parent && !Array.isArray(parent)) {
@@ -568,6 +572,7 @@ function normalizeProps (options: Object, vm: ?Component) {
     while (i--) {
       val = props[i]
       if (typeof val === 'string') {
+        // camelize 的作用是将中横线转化为驼峰
         name = camelize(val)
         res[name] = { type: null }
       } else if (process.env.NODE_ENV !== 'production') {
